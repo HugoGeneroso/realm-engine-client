@@ -94,6 +94,28 @@
   ## 🔗 Related
 
   - **Website & web app:** [realmengine.org](https://realmengine.org)
+  The RotMG hacking scene gets better when the tools aren't held hostage. Raising the floor beats hoarding a moat.
+
+  **Can I sell hacks I build on top of this?**
+  Yes. Fork it, build on it, charge for your own work. Just don't claim you wrote the parts you didn't.
+
+  **What OS is supported?**
+  Windows x64 only. The client is Electron; the injection layer is a native Windows DLL. Wine / macOS / Linux are not supported.
+
+  **How do I report a bug or request a feature?**
+  Open an issue here or hop into the [Discord](https://discord.gg/CGuYyTbf) — bug reports and feature requests are triaged there.
+
+  ---
+
+  ## 🤝 Contributing
+
+  PRs welcome. Pick an open issue, ship a hack, or rewrite something better — the point of open-sourcing this was so the scene can iterate on it in public.
+
+  ---
+
+  ## 🔗 Related
+
+  - **Website & web app:** [realmengine.org](https://realmengine.org)
   - **Discord community:** [discord.gg/CGuYyTbf](https://discord.gg/CGuYyTbf)
   - **Lore / origin story:** [realmengine.org/lore](https://realmengine.org/lore)
 
@@ -109,5 +131,5 @@
   <summary><strong>Keywords (for search indexing)</strong></summary>
 
   realm engine, realm engine rotmg, rotmg hacks, rotmg cheats, rotmg mods, rotmg hack client, rotmg mod client, realm of the mad god hacks, realm of the mad god mods, realm of the mad god cheats, open source rotmg, rotmg autonexus, rotmg autododge, rotmg autoloot, rotmg
-  pathfinding, rotmg hack builder, rotmg mod builder, free rotmg client, rotmg trainer, exalt hacks, exalt mods, exalt cheats, rotmg modding, rotmg hacking, RotMG, RotMG Exalt
+  pathfinding, rotmg hack builder, rotmg mod builder, free rotmg client, rotmg trainer, exalt hacks, exalt mods, exalt cheats, rotmg modding, rotmg hacking, IL2CPP injection, RotMG, RotMG Exalt
   </details>
