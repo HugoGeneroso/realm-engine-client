@@ -16,8 +16,8 @@ REM    setup-windows-build.bat D:\path\here    -> custom dest
 REM ============================================================================
 setlocal
 
-REM client dir = this script's folder; repo root = its parent (has client + internal)
-for %%I in ("%~dp0..") do set "SRCROOT=%%~fI"
+REM client dir = tools/../; repo root = tools/../../ (has client + internal)
+for %%I in ("%~dp0..\..") do set "SRCROOT=%%~fI"
 set "SRCCLIENT=%SRCROOT%\client"
 set "SRCINTERNAL=%SRCROOT%\internal"
 
@@ -66,7 +66,7 @@ echo Native Windows checkout ready at: "%DEST%"
 echo.
 echo Next: build the installer from there:
 echo     cd /d "%DESTCLIENT%"
-echo     build-installer.bat
+echo     build-tools\build-installer.bat
 echo.
 pause
 exit /b 0

@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const ROOT = resolve(__dirname, '..');
 const DASHBOARD_URL = 'http://localhost:4440';
 const POLL_INTERVAL_MS = 500;
 const TIMEOUT_MS = 15000;
@@ -16,8 +17,8 @@ const TIMEOUT_MS = 15000;
 // Start the proxy + dev server via tsx (no shell to avoid deprecation warning)
 const proxy = spawn(
   process.execPath,
-  [resolve(__dirname, 'node_modules', '.bin', 'tsx'), resolve(__dirname, 'src', 'index.ts'), '--dev'],
-  { cwd: __dirname, stdio: 'inherit' },
+  [resolve(ROOT, 'node_modules', '.bin', 'tsx'), resolve(ROOT, 'src', 'index.ts'), '--dev'],
+  { cwd: ROOT, stdio: 'inherit' },
 );
 
 // Poll until the dashboard is up, then open in Windows browser

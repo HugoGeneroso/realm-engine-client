@@ -6,21 +6,17 @@ set "MODE=%~1"
 
 REM sync-and-build.bat — mirror WSL source → Windows, then build the installer.
 REM
-REM Configurable via environment variables (set them in a wrapper .bat or your
-REM shell profile if the auto-detect doesn't match your setup):
-REM   WSL_DISTRO    distro name        (default: Debian)
-REM   WSL_USER      WSL user           (default: %USERNAME%)
-REM   WSL_PARENT    parent path in WSL (default: auto — prefers home\<WSL_USER>\realm-engine, falls back to home\<WSL_USER>\LFG)
-REM   WIN_BASE      Windows dest dir   (default: %USERPROFILE%\Desktop\test)
-REM   CLIENT_DIR    client repo name   (default: auto — prefers client over legacy bot-client)
-REM   INTERNAL_DIR  internal repo name (default: auto — prefers internal over legacy DebugInternal)
+REM Env-var overrides:
+REM   WSL_DISTRO    WSL distro name            (default: Debian)
+REM   WSL_USER      WSL login user             (default: auto via wsl whoami)
+REM   WSL_PARENT    project root in WSL        (default: auto-detect ~/realmengine or ~/realm-engine)
+REM   WIN_BASE      Windows destination dir    (default: %USERPROFILE%\Desktop\test)
+REM   CLIENT_DIR    client folder name         (default: auto)
+REM   INTERNAL_DIR  internal folder name       (default: auto)
 
 REM ── Defaults ────────────────────────────────────────────────────────────────
 if "!WSL_DISTRO!"==""   set "WSL_DISTRO=Debian"
 if "!WSL_USER!"=="" (
-    REM Linux is case-sensitive and the WSL username may not match the
-    REM Windows %USERNAME% — ask the running distro directly. Falls back
-    REM to %USERNAME% when wsl isn't available (no distro running yet).
     for /f "delims=" %%I in ('wsl -d !WSL_DISTRO! whoami 2^>nul') do set "WSL_USER=%%I"
     if "!WSL_USER!"=="" set "WSL_USER=%USERNAME%"
 )
@@ -34,14 +30,9 @@ if "!WSL_PARENT!"=="" (
     ) else if exist "\\wsl$\!WSL_DISTRO!\home\!WSL_USER!\realm-engine\client" (
         set "WSL_PARENT=home\!WSL_USER!\realm-engine"
     ) else (
-        REM No LFG fallback. realm-engine/ is canonical — silently building
-        REM from LFG/bot-client (the older mirror) shipped stale code and
-        REM looked like our work had been reverted. Fail loud instead so
-        REM the user knows the source root wasn't auto-detected.
-        echo [sync] ERROR: Couldn't find realm-engine\client under \\wsl.localhost\!WSL_DISTRO!\home\!WSL_USER!\
-        echo [sync] - Make sure WSL is running and your dev tree is at ~/realm-engine/client
+        echo [sync] ERROR: Couldn't find realmengine\client or realm-engine\client under \\wsl.localhost\!WSL_DISTRO!\home\!WSL_USER!\
+        echo [sync] - Make sure WSL is running and your dev tree is at ~/realmengine/client
         echo [sync] - Or set WSL_PARENT manually before running this script.
-        echo [sync] LFG\bot-client is NOT a valid build source anymore.
         pause
         exit /b 1
     )
@@ -60,12 +51,8 @@ if "!WSL_BASE!"=="" (
     exit /b 1
 )
 
-REM ── Detect repo names (RealmEngineRotmg/client+internal or legacy) ──────────
+REM ── Detect repo names ───────────────────────────────────────────────────────
 if "!CLIENT_DIR!"=="" (
-    REM Strictly the canonical name. Legacy 'bot-client' / 'DebugInternal'
-    REM are the OLD mirror locations — building from them shipped stale
-    REM code and made it look like recent work had been reverted. If the
-    REM canonical folder isn't here, error rather than picking the mirror.
     if exist "!WSL_BASE!\client" set "CLIENT_DIR=client"
 )
 if "!INTERNAL_DIR!"=="" (
@@ -74,13 +61,11 @@ if "!INTERNAL_DIR!"=="" (
 
 if "!CLIENT_DIR!"=="" (
     echo [sync] ERROR: 'client' not found under !WSL_BASE!
-    echo [sync] LFG\bot-client is NOT a valid build source anymore.
     pause
     exit /b 1
 )
 if "!INTERNAL_DIR!"=="" (
     echo [sync] ERROR: 'internal' not found under !WSL_BASE!
-    echo [sync] LFG\DebugInternal is NOT a valid build source anymore.
     pause
     exit /b 1
 )

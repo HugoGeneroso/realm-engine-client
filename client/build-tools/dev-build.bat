@@ -1,31 +1,23 @@
 @echo off
 setlocal enabledelayedexpansion
 
-REM dev-build.bat — Fast DLL dev iteration.
-REM   1. Sync the internal repo from WSL (optional; auto-detects 'internal' or 'DebugInternal')
-REM   2. Write dev BuildSecrets.h if missing (dev keys matching InternalBridge.ts)
-REM   3. MSBuild Debug|x64 (full symbols + debug console when DLL loads)
-REM   4. Copy version.dll + PDB straight to the game folder
+REM dev-build.bat — Fast DLL dev iteration: sync internal from WSL, build, deploy to game.
 REM
 REM Usage:
 REM   dev-build.bat           (default: Debug|x64)
 REM   dev-build.bat release   (Release|x64 — no console, stripped)
 REM
-REM Env-var overrides (defaults shown):
-REM   WSL_DISTRO=Debian   WSL_USER=<auto>   WSL_PARENT=<auto: home\<user>\realm-engine, falls back to home\<user>\LFG>
-REM   WIN_BASE=%USERPROFILE%\Desktop\test   INTERNAL_DIR=<auto>
+REM Env-var overrides:
+REM   WSL_DISTRO=Debian  WSL_USER=<auto>  WSL_PARENT=<auto>  WIN_BASE=C:\realm-engine  INTERNAL_DIR=<auto>
 
 REM ── Pick build configuration ────────────────────────────────────────────────
 set "BUILD_CONFIG=Debug"
 if /I "%~1"=="release" set "BUILD_CONFIG=Release"
 echo [dev] Build configuration: !BUILD_CONFIG!^|x64
 
-REM ── Env-var overrides (see sync-and-build.bat for the same set) ─────────────
+REM ── Env defaults ────────────────────────────────────────────────────────────────
 if "!WSL_DISTRO!"==""   set "WSL_DISTRO=Debian"
 if "!WSL_USER!"=="" (
-    REM Linux is case-sensitive and the WSL username may not match the
-    REM Windows %USERNAME% — ask the running distro directly. Falls back
-    REM to %USERNAME% when wsl isn't available (no distro running yet).
     for /f "delims=" %%I in ('wsl -d !WSL_DISTRO! whoami 2^>nul') do set "WSL_USER=%%I"
     if "!WSL_USER!"=="" set "WSL_USER=%USERNAME%"
 )
@@ -73,9 +65,7 @@ if "!WSL_BASE!"=="" (
     echo [dev] WSL mount not found; skipping sync. Building from existing !WIN_BASE!\!INTERNAL_DIR!.
 ) else (
     echo [dev] Syncing !INTERNAL_DIR! from WSL...
-    REM /XF BuildSecrets.h: do NOT delete Windows-side production secrets written
-    REM by sync-and-build.bat's build-prod step. Without this, dev-build silently
-    REM overwrites prod secrets with dev defaults, breaking DLL↔client pipe.
+    REM /XF BuildSecrets.h: preserve Windows-side prod secrets written by build-prod.
     robocopy "!WSL_BASE!\!INTERNAL_DIR!" "!WIN_BASE!\!INTERNAL_DIR!" ^
         /MIR /R:3 /W:2 /NFL /NDL /NP /NJH /NJS ^
         /XD x64 .vs .git ^
@@ -124,11 +114,6 @@ for %%V in (18 2026 2022) do (
         )
     )
 )
-for %%E in (Community Professional Enterprise BuildTools) do (
-    if not defined MSBUILD if exist "C:\Program Files\Microsoft Visual Studio\2022\%%E\MSBuild\Current\Bin\MSBuild.exe" (
-        set "MSBUILD=C:\Program Files\Microsoft Visual Studio\2022\%%E\MSBuild\Current\Bin\MSBuild.exe"
-    )
-)
 if "!MSBUILD!"=="" (
     echo [dev] ERROR: MSBuild not found under Visual Studio 2026/2022 or Build Tools.
     pause
@@ -137,9 +122,7 @@ if "!MSBUILD!"=="" (
 echo [dev] MSBuild: !MSBUILD!
 
 REM ── Build ───────────────────────────────────────────────────────────────────
-REM ── Nuke x64 build cache to force a clean compile ──────────────────────────
-REM MSBuild's incremental state (.tlog) sometimes refuses to re-compile files
-REM when only project-wide settings change (like ExceptionHandling / toolset).
+
 echo [dev] Clearing x64 build cache for a clean compile...
 if exist "!WIN_BASE!\!INTERNAL_DIR!\x64\!BUILD_CONFIG!" (
     rmdir /S /Q "!WIN_BASE!\!INTERNAL_DIR!\x64\!BUILD_CONFIG!" 2>nul

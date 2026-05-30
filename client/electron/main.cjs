@@ -54,7 +54,7 @@ function resolveAppIcon() {
     return undefined;
   }
   const root = path.join(__dirname, '..');
-  for (const name of ['assets/app-icon.png', 'LogoWNoBackground.png']) {
+  for (const name of ['assets/app-icon.png', 'assets/LogoWNoBackground.png']) {
     const p = path.join(root, name);
     if (fs.existsSync(p)) return p;
   }

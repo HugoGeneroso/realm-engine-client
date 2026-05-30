@@ -22,7 +22,7 @@ setlocal
 set "MODE=%~1"
 
 REM pushd maps a UNC path to a temp drive letter and cd's into it.
-pushd "%~dp0"
+pushd "%~dp0.."
 if errorlevel 1 (
   echo [ERROR] Could not enter "%~dp0".
   goto :fail
@@ -48,7 +48,7 @@ if exist "node_modules" if not exist "node_modules\.bin\tsc.cmd" (
   echo         ^(no node_modules\.bin\tsc.cmd; esbuild/electron are Linux binaries^)
   echo.
   echo   Fix: build from a NATIVE Windows checkout, not the \\wsl.localhost path.
-  echo        Run  setup-windows-build.bat  once to mirror the repo to a local
+  echo        Run  build-tools\setup-windows-build.bat  once to mirror the repo to a local
   echo        Windows folder and install Windows deps, then build from there.
   goto :fail
 )

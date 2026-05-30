@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-cd /d "%~dp0"
+cd /d "%~dp0.."
 
 if not exist "node_modules" (
   echo node_modules not found — running npm install...
