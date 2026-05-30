@@ -202,6 +202,12 @@
       <ClCompile Include="src\features\movement\dodge\ChatToast.cpp">
       <Filter>src\features\movement\dodge</Filter>
       </ClCompile>
+      <ClCompile Include="src\features\movement\dodge\RolloutDodge.cpp">
+      <Filter>src\features\movement\dodge</Filter>
+      </ClCompile>
+      <ClCompile Include="src\features\movement\dodge\GridThreatIndex.cpp">
+      <Filter>src\features\movement\dodge</Filter>
+      </ClCompile>
       <ClCompile Include="src\features\movement\dodge\DangerPlanner.cpp">
       <Filter>src\features\movement\dodge</Filter>
       </ClCompile>
@@ -229,6 +235,21 @@
       <Filter>src\features\movement\dodge</Filter>
       </ClInclude>
       <ClInclude Include="src\features\movement\dodge\DangerPlanner.h">
+      <Filter>src\features\movement\dodge</Filter>
+      </ClInclude>
+      <ClInclude Include="src\features\movement\dodge\RolloutDodge.h">
+      <Filter>src\features\movement\dodge</Filter>
+      </ClInclude>
+      <ClInclude Include="src\features\movement\dodge\ThreatIndex.h">
+      <Filter>src\features\movement\dodge</Filter>
+      </ClInclude>
+      <ClInclude Include="src\features\movement\dodge\GridThreatIndex.h">
+      <Filter>src\features\movement\dodge</Filter>
+      </ClInclude>
+      <ClInclude Include="src\features\movement\dodge\DodgeHit.h">
+      <Filter>src\features\movement\dodge</Filter>
+      </ClInclude>
+      <ClInclude Include="src\features\movement\dodge\DodgeSpeed.h">
       <Filter>src\features\movement\dodge</Filter>
       </ClInclude>
       <ClInclude Include="src\features\movement\dodge\MovementRuntime.h">

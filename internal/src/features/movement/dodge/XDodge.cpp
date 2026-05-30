@@ -3,6 +3,7 @@
 #include "AutoAim.h"
 #include "DangerPlanner.h"
 #include "ProjectileTracking.h"
+#include "DodgeHit.h"
 #include "LocalPlayer.h"
 #include "RuntimeOffsets.h"
 #include "gui/tabs/TestTAB.h"
@@ -244,7 +245,7 @@ static std::atomic<bool> g_bfsBiasEnabled{ true };
 // (≤8 candidates). Margin ≈ 0 (only g_ccdPad for command latency).
 static std::atomic<bool> g_ccdEnabled{ true };
 static float g_ccdPad = 0.03f;                       // tiles, command-latency hair
-static constexpr float kPlayerHalf    = 0.2139f;     // RotMG player half-hitbox (tiles)
+using DodgeHit::kPlayerHalf;                         // shared hit math (DodgeHit.h)
 
 // Never-stand-on-enemies. Contact damage in RotMG triggers from touching
 // any enemy/boss body, so stamping live enemies into the danger grid
@@ -387,19 +388,10 @@ static std::atomic<bool> g_smartGoalEnabled{ true };
 static constexpr int kGoalSearch    = 4;   // window half-extent (cells) around raw goal
 static constexpr int kGoalHorizonT  = 6;   // severity summed over t=0..this slice
 
-// Per-projectile Chebyshev half-extent with finite + 0.5 fallback. b0's
-// inline `runtimeChebyshevHalf>0 ? runtimeChebyshevHalf : projHalfSize` gives
-// a ZERO hitbox when both offsets resolve to 0 on an updated game build →
-// XDodge sees no danger → never dodges. The 0.5 default (standard
-// CollisionMult 1.0 × 0.5) keeps dodge alive across game updates.
-static float ProjChebyshevHalf(const WorldProjectile& b)
-{
-    if (b.runtimeChebyshevHalf > 1e-5f && std::isfinite(b.runtimeChebyshevHalf))
-        return b.runtimeChebyshevHalf;
-    if (b.projHalfSize > 1e-6f && std::isfinite(b.projHalfSize))
-        return b.projHalfSize;
-    return 0.5f;
-}
+// Per-projectile Chebyshev half-extent (finite + 0.5 fallback) now lives in
+// DodgeHit.h so XDodge and RolloutDodge share one hit model. Bring it into
+// scope so the existing call sites below are unchanged.
+using DodgeHit::ProjChebyshevHalf;
 
 // ── P7/P8: per-(motion-signature) bullet catalog ─────────────────────────
 // Jesse's ProjectileCatalog reborn. Bullets with identical motion params
