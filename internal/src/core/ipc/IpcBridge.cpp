@@ -1,5 +1,25 @@
 #include "pch-il2cpp.h"
-#include "IpcBridgeIncludes.hpp"
+#include "IpcBridge.h"
+#include "Handshake.h"
+#include "settings.h"
+#include "DbgFileLog.h"
+#include "RuntimeOffsets.h"
+
+#if __has_include("BuildSecrets.h")
+#include "BuildSecrets.h"
+#endif
+
+#ifndef BUILD_PIPE_NAME
+#define BUILD_PIPE_NAME "\\\\.\\pipe\\lfg-dev-bridge"
+#endif
+
+#include <atomic>
+#include <mutex>
+#include <vector>
+#include <cstdio>
+#include <cstring>
+#include <iostream>
+
 #include "IpcTileState.h"
 #include "IpcFraming.h"
 #include "IpcJson.h"

@@ -1,5 +1,9 @@
 #include "pch-il2cpp.h"
-#include "IpcBridgeIncludes.hpp"
+#include "RuntimeOffsets.h"
+#include "GameState.h"
+#include "Il2CppResolver.h"
+#include <mutex>
+#include <cstring>
 #include "FloatingTextService.h"
 
 namespace {
