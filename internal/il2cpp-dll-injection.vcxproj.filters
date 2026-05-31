@@ -52,6 +52,7 @@
     <ClCompile Include="src\features\combat\autoaim\ProjNoclip.cpp" />
     <ClCompile Include="src\features\movement\noclip\Noclip.cpp" />
     <ClCompile Include="src\features\movement\noclip\NoclipHook.cpp" />
+    <ClCompile Include="src\features\control\FeatureState.cpp" />
     <ClCompile Include="vendor\minhook\hook.c" />
     <ClCompile Include="vendor\minhook\buffer.c" />
     <ClCompile Include="vendor\minhook\trampoline.c" />
@@ -145,6 +146,7 @@
     <ClInclude Include="src\features\combat\autoaim\ProjNoclip.h" />
     <ClInclude Include="src\features\movement\noclip\Noclip.h" />
     <ClInclude Include="src\features\movement\noclip\NoclipHook.h" />
+    <ClInclude Include="src\features\control\FeatureState.h" />
     <ClInclude Include="src\game\symbols\BeebyteName.h" />
     <ClInclude Include="vendor\detours\detours.h" />
     <ClInclude Include="vendor\imgui\imconfig.h" />

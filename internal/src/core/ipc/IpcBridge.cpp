@@ -5,6 +5,7 @@
 #include "IpcJson.h"
 #include "IpcMessages.h"
 #include "IpcSession.h"
+#include "FeatureState.h"
 
 // Debug logging
 
@@ -63,28 +64,15 @@ static std::atomic<bool> s_overlayEnabled{false};
 
 bool IpcBridge_IsOverlayEnabled() { return s_overlayEnabled.load(std::memory_order_relaxed); }
 
-static std::atomic<int> s_featAutoAimEnabled{0}, s_featAutoAimMode{0}, s_featProjectileNoclipEnabled{0};
-static std::atomic<int> s_featDodgeMode{0}, s_featDodgeWallAvoid{1}, s_featAutoAbilityEnabled{0}, s_featAutoAbilityWizardMode{0};
-static std::atomic<int> s_featPlayerNoclipActive{0}, s_featPlayerNoclipEnabled{0}, s_featPlayerNoclipHotkeyVk{'N'}, s_pendingPlayerNoclipEnabled{-1};
-static std::atomic<int> s_featSocketHotkeyActive{0}, s_featSocketHotkeyVk{'L'}, s_featWalkTargetActive{0};
-static std::atomic<int> s_featCameraZoomActive{0}, s_featCameraAngleActive{0}, s_featCameraAngleValue{0}, s_featCameraCenteringActive{0}, s_featCameraCentered{1};
-static std::atomic<int> s_featSkinOverrideEnabled{0}, s_featSkinOverrideId{0};
-static std::atomic<float> s_featDodgeHorizonMs{800.f}, s_featDodgeHitboxPadding{0.f}, s_featAutoAbilityMpPct{0.f};
-static std::atomic<float> s_featWalkTargetX{0.f}, s_featWalkTargetY{0.f}, s_featCameraZoomValue{8.f};
-static std::atomic<int32_t> s_featClientDefense{static_cast<int32_t>(0x80000000u)}, s_featClientClassType{0};
-
-static int ClampInt(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
-static float ClampFloat(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
-
 // Render-thread feature applicators
 
 namespace {
     void ApplyAutoAimFeatureState()
     {
         static int s_lastEnabled = -1, s_lastMode = -1;
-        const int enabled = s_featAutoAimEnabled.load(std::memory_order_relaxed) != 0 ? 1 : 0;
+        const int enabled = FeatureState::GetAutoAimEnabled() ? 1 : 0;
         if (enabled != s_lastEnabled) { s_lastEnabled = enabled; AutoAim::SetEnabled(enabled != 0); }
-        const int aimMode = s_featAutoAimMode.load(std::memory_order_relaxed);
+        const int aimMode = FeatureState::GetAutoAimMode();
         if (aimMode != s_lastMode) {
             s_lastMode = aimMode;
             AutoAim::AimMode resolved = AutoAim::AimMode::ClosestToPlayer;
@@ -97,7 +85,7 @@ namespace {
     void ApplyProjectileNoclipFeatureState()
     {
         static int s_lastEnabled = -1;
-        const int enabled = s_featProjectileNoclipEnabled.load(std::memory_order_relaxed) != 0 ? 1 : 0;
+        const int enabled = FeatureState::GetProjectileNoclipEnabled() ? 1 : 0;
         if (enabled != 0 && !ProjNoclip::IsInstalled()) ProjNoclip::Install();
         if (enabled != s_lastEnabled || ProjNoclip::IsEnabled() != (enabled != 0)) { s_lastEnabled = enabled; ProjNoclip::SetEnabled(enabled != 0); }
     }
@@ -106,10 +94,10 @@ namespace {
     {
         static int s_lastMode = INT32_MIN;
         static float s_lastHorizonMs = -1.f;
-        int dodgeMode = ClampInt(s_featDodgeMode.load(std::memory_order_relaxed), 0, static_cast<int>(TestTAB::DodgeMode::Rollout));
+        int dodgeMode = FeatureState::GetAutoDodgeMode();
         if (dodgeMode != s_lastMode) { s_lastMode = dodgeMode; TestTAB::SetDodgeModeWithEnter(static_cast<TestTAB::DodgeMode>(dodgeMode)); }
         if (dodgeMode != static_cast<int>(TestTAB::DodgeMode::Off)) DangerPlanner::TryInstall();
-        float horizonMs = ClampFloat(s_featDodgeHorizonMs.load(std::memory_order_relaxed), 100.f, 4000.f);
+        float horizonMs = FeatureState::GetAutoDodgeHorizonMs();
         if (horizonMs != s_lastHorizonMs) { s_lastHorizonMs = horizonMs; TestTAB::SetDodgeLookaheadMs(horizonMs); }
     }
 
@@ -117,9 +105,9 @@ namespace {
     {
         static int s_lastEnabled = -1, s_lastWizMode = INT32_MIN;
         static float s_lastMpPct = -1.f;
-        const int enabled = s_featAutoAbilityEnabled.load(std::memory_order_relaxed) != 0 ? 1 : 0;
-        const float mpPct = s_featAutoAbilityMpPct.load(std::memory_order_relaxed);
-        const int wizMode = s_featAutoAbilityWizardMode.load(std::memory_order_relaxed);
+        const int enabled = FeatureState::GetAutoAbilityEnabled() ? 1 : 0;
+        const float mpPct = FeatureState::GetAutoAbilityMpPct();
+        const int wizMode = FeatureState::GetAutoAbilityWizardMode();
         if (enabled != s_lastEnabled) { s_lastEnabled = enabled; CombatTAB::SetAutoAbility(enabled != 0); }
         if (mpPct != s_lastMpPct) { s_lastMpPct = mpPct; CombatTAB::SetAbilityMpPct(mpPct); }
         if (wizMode != s_lastWizMode) { s_lastWizMode = wizMode; CombatTAB::SetWizardAbilityTargetMode(wizMode); }
@@ -162,26 +150,19 @@ namespace {
     }
 
     static bool IsHotkeyDown(int active, int vk) { return active != 0 && vk != 0 && IsCurrentProcessForeground() && ((GetAsyncKeyState(vk) & 0x8000) != 0); }
-    template <typename T, typename Setter> static void ApplyActiveValue(std::atomic<int>& activeAtom, std::atomic<T>& valueAtom, int& lastActive, T& lastValue, Setter setter)
-    {
-        const int active = activeAtom.load(std::memory_order_relaxed) != 0 ? 1 : 0;
-        const T value = valueAtom.load(std::memory_order_relaxed);
-        if (active != 0 && (active != lastActive || value != lastValue)) { lastActive = active; lastValue = value; setter(value); }
-        else if (active == 0) lastActive = active;
-    }
 
     void ApplyPlayerNoclipFeatureState()
     {
         static int s_lastEnabled = -1;
         static bool s_lastHotkeyDown = false;
-        const int active = s_featPlayerNoclipActive.load(std::memory_order_relaxed) != 0 ? 1 : 0;
-        int enabled = active && s_featPlayerNoclipEnabled.load(std::memory_order_relaxed) != 0 ? 1 : 0;
-        const int vk = s_featPlayerNoclipHotkeyVk.load(std::memory_order_relaxed);
+        const int active = FeatureState::GetPlayerNoclipActive() ? 1 : 0;
+        int enabled = active && FeatureState::GetPlayerNoclipEnabled() ? 1 : 0;
+        const int vk = FeatureState::GetPlayerNoclipHotkeyVk();
         const bool hotkeyDown = IsHotkeyDown(active, vk);
         if (hotkeyDown && !s_lastHotkeyDown) {
             enabled = enabled ? 0 : 1;
-            s_featPlayerNoclipEnabled.store(enabled, std::memory_order_relaxed);
-            s_pendingPlayerNoclipEnabled.store(enabled, std::memory_order_relaxed);
+            FeatureState::SetPlayerNoclipEnabled(enabled != 0);
+            FeatureState::SetPendingPlayerNoclipEnabled(enabled);
         }
         s_lastHotkeyDown = hotkeyDown;
         if (enabled != s_lastEnabled) { s_lastEnabled = enabled; Noclip::SetEnabled(enabled != 0); Noclip::SetMode(enabled != 0 ? 1 : 0); }
@@ -190,8 +171,8 @@ namespace {
     bool PollSocketHotkeyEvent()
     {
         static bool s_lastHotkeyDown = false;
-        const int active = s_featSocketHotkeyActive.load(std::memory_order_relaxed) != 0 ? 1 : 0;
-        const int vk = s_featSocketHotkeyVk.load(std::memory_order_relaxed);
+        const int active = FeatureState::GetSocketHotkeyActive() ? 1 : 0;
+        const int vk = FeatureState::GetSocketHotkeyVk();
         const bool hotkeyDown = IsHotkeyDown(active, vk);
         const bool shouldFire = hotkeyDown && !s_lastHotkeyDown;
         s_lastHotkeyDown = hotkeyDown;
@@ -203,9 +184,9 @@ namespace {
         static int   s_lastActive = -1;
         static float s_lastX      = std::numeric_limits<float>::quiet_NaN();
         static float s_lastY      = std::numeric_limits<float>::quiet_NaN();
-        const int   walkActive = s_featWalkTargetActive.load(std::memory_order_relaxed) != 0 ? 1 : 0;
-        const float walkX      = s_featWalkTargetX.load(std::memory_order_relaxed);
-        const float walkY      = s_featWalkTargetY.load(std::memory_order_relaxed);
+        const int   walkActive = FeatureState::GetWalkTargetActive() ? 1 : 0;
+        const float walkX      = FeatureState::GetWalkTargetX();
+        const float walkY      = FeatureState::GetWalkTargetY();
         const bool changed = walkActive != s_lastActive || walkX != s_lastX || walkY != s_lastY;
         if (changed) {
             s_lastActive = walkActive; s_lastX = walkX; s_lastY = walkY;
@@ -217,65 +198,70 @@ namespace {
     {
         static int zoomActive = -1, angleActive = -1, centerActive = -1, angle = INT32_MIN, centered = -1;
         static float zoom = std::numeric_limits<float>::quiet_NaN();
-        ApplyActiveValue<float>(s_featCameraZoomActive, s_featCameraZoomValue, zoomActive, zoom, [](float v) { CameraTAB::SetZoomValue(v); });
-        ApplyActiveValue<int>(s_featCameraAngleActive, s_featCameraAngleValue, angleActive, angle, [](int v) { CameraTAB::SetAngleDegrees(v); });
-        ApplyActiveValue<int>(s_featCameraCenteringActive, s_featCameraCentered, centerActive, centered, [](int v) { CameraTAB::SetCenteredOnPlayer(v != 0); });
+        {
+            const int active = FeatureState::GetCameraZoomActive() ? 1 : 0;
+            const float value = FeatureState::GetCameraZoomValue();
+            if (active != 0 && (active != zoomActive || value != zoom)) { zoomActive = active; zoom = value; CameraTAB::SetZoomValue(value); }
+            else if (active == 0) zoomActive = active;
+        }
+        {
+            const int active = FeatureState::GetCameraAngleActive() ? 1 : 0;
+            const int value = FeatureState::GetCameraAngleValue();
+            if (active != 0 && (active != angleActive || value != angle)) { angleActive = active; angle = value; CameraTAB::SetAngleDegrees(value); }
+            else if (active == 0) angleActive = active;
+        }
+        {
+            const int active = FeatureState::GetCameraCenteringActive() ? 1 : 0;
+            const int value = FeatureState::GetCameraCentered() ? 1 : 0;
+            if (active != 0 && (active != centerActive || value != centered)) { centerActive = active; centered = value; CameraTAB::SetCenteredOnPlayer(value != 0); }
+            else if (active == 0) centerActive = active;
+        }
     }
 } // namespace
 
-// Public feature accessors
+// Public feature accessors — shim to FeatureState
 
-#define LOAD_BOOL(name, atom) bool name() { return atom.load(std::memory_order_relaxed) != 0; }
-#define LOAD_INT(name, atom) int name() { return atom.load(std::memory_order_relaxed); }
-#define LOAD_FLOAT(name, atom) float name() { return atom.load(std::memory_order_relaxed); }
-#define STORE_BOOL(name, atom) void name(bool v) { atom.store(v ? 1 : 0, std::memory_order_relaxed); }
+bool    IpcBridge_GetAutoAimEnabled()                         { return FeatureState::GetAutoAimEnabled(); }
+int     IpcBridge_GetAutoAimMode()                            { return FeatureState::GetAutoAimMode(); }
+void    IpcBridge_SetAutoAimEnabled(bool enabled)             { FeatureState::SetAutoAimEnabled(enabled); }
+void    IpcBridge_SetAutoAimMode(int mode)                    { FeatureState::SetAutoAimMode(mode); }
 
-LOAD_BOOL(IpcBridge_GetAutoAimEnabled, s_featAutoAimEnabled)
-LOAD_INT(IpcBridge_GetAutoAimMode, s_featAutoAimMode)
-STORE_BOOL(IpcBridge_SetAutoAimEnabled, s_featAutoAimEnabled)
-void IpcBridge_SetAutoAimMode(int mode) { s_featAutoAimMode.store(ClampInt(mode, 0, 2), std::memory_order_relaxed); }
+int     IpcBridge_GetAutoDodgeMode()                          { return FeatureState::GetAutoDodgeMode(); }
+void    IpcBridge_SetAutoDodgeMode(int mode)                  { FeatureState::SetAutoDodgeMode(mode); }
+float   IpcBridge_GetAutoDodgeHorizonMs()                     { return FeatureState::GetAutoDodgeHorizonMs(); }
+void    IpcBridge_SetAutoDodgeHorizonMs(float ms)             { FeatureState::SetAutoDodgeHorizonMs(ms); }
+float   IpcBridge_GetAutoDodgeHitboxPadding()                 { return FeatureState::GetAutoDodgeHitboxPadding(); }
+void    IpcBridge_SetAutoDodgeHitboxPadding(float p)          { FeatureState::SetAutoDodgeHitboxPadding(p); }
+bool    IpcBridge_GetAutoDodgeWallAvoid()                     { return FeatureState::GetAutoDodgeWallAvoid(); }
+void    IpcBridge_SetAutoDodgeWallAvoid(bool enabled)         { FeatureState::SetAutoDodgeWallAvoid(enabled); }
 
-LOAD_INT(IpcBridge_GetAutoDodgeMode, s_featDodgeMode)
-void IpcBridge_SetAutoDodgeMode(int mode) { s_featDodgeMode.store(ClampInt(mode, 0, static_cast<int>(TestTAB::DodgeMode::Rollout)), std::memory_order_relaxed); }
-LOAD_FLOAT(IpcBridge_GetAutoDodgeHorizonMs, s_featDodgeHorizonMs)
-void IpcBridge_SetAutoDodgeHorizonMs(float ms) { s_featDodgeHorizonMs.store(ClampFloat(ms, 100.f, 4000.f), std::memory_order_relaxed); }
-LOAD_FLOAT(IpcBridge_GetAutoDodgeHitboxPadding, s_featDodgeHitboxPadding)
-void IpcBridge_SetAutoDodgeHitboxPadding(float paddingTiles) { s_featDodgeHitboxPadding.store(ClampFloat(paddingTiles, 0.f, 1.5f), std::memory_order_relaxed); }
-LOAD_BOOL(IpcBridge_GetAutoDodgeWallAvoid, s_featDodgeWallAvoid)
-STORE_BOOL(IpcBridge_SetAutoDodgeWallAvoid, s_featDodgeWallAvoid)
+bool    IpcBridge_GetAutoAbilityEnabled()                     { return FeatureState::GetAutoAbilityEnabled(); }
+void    IpcBridge_SetAutoAbilityEnabled(bool enabled)         { FeatureState::SetAutoAbilityEnabled(enabled); }
+float   IpcBridge_GetAutoAbilityMpPct()                       { return FeatureState::GetAutoAbilityMpPct(); }
+void    IpcBridge_SetAutoAbilityMpPct(float pct)              { FeatureState::SetAutoAbilityMpPct(pct); }
+int     IpcBridge_GetAutoAbilityWizardMode()                  { return FeatureState::GetAutoAbilityWizardMode(); }
+void    IpcBridge_SetAutoAbilityWizardMode(int mode)          { FeatureState::SetAutoAbilityWizardMode(mode); }
 
-LOAD_BOOL(IpcBridge_GetAutoAbilityEnabled, s_featAutoAbilityEnabled)
-STORE_BOOL(IpcBridge_SetAutoAbilityEnabled, s_featAutoAbilityEnabled)
-LOAD_FLOAT(IpcBridge_GetAutoAbilityMpPct, s_featAutoAbilityMpPct)
-void IpcBridge_SetAutoAbilityMpPct(float pctZeroTo100) { s_featAutoAbilityMpPct.store(ClampFloat(pctZeroTo100, 0.f, 100.f), std::memory_order_relaxed); }
-LOAD_INT(IpcBridge_GetAutoAbilityWizardMode, s_featAutoAbilityWizardMode)
-void IpcBridge_SetAutoAbilityWizardMode(int mode) { s_featAutoAbilityWizardMode.store(mode == 1 ? 1 : 0, std::memory_order_relaxed); }
+float   IpcBridge_GetWalkTargetX()                            { return FeatureState::GetWalkTargetX(); }
+float   IpcBridge_GetWalkTargetY()                            { return FeatureState::GetWalkTargetY(); }
+bool    IpcBridge_GetWalkTargetActive()                       { return FeatureState::GetWalkTargetActive(); }
+void    IpcBridge_SetWalkTarget(float wx, float wy, bool a)   { FeatureState::SetWalkTarget(wx, wy, a); }
 
-LOAD_FLOAT(IpcBridge_GetWalkTargetX, s_featWalkTargetX)
-LOAD_FLOAT(IpcBridge_GetWalkTargetY, s_featWalkTargetY)
-LOAD_BOOL(IpcBridge_GetWalkTargetActive, s_featWalkTargetActive)
-void IpcBridge_SetWalkTarget(float worldX, float worldY, bool active) { s_featWalkTargetX.store(worldX, std::memory_order_relaxed); s_featWalkTargetY.store(worldY, std::memory_order_relaxed); s_featWalkTargetActive.store(active ? 1 : 0, std::memory_order_relaxed); }
+bool    IpcBridge_GetCameraZoomActive()                       { return FeatureState::GetCameraZoomActive(); }
+float   IpcBridge_GetCameraZoomValue()                        { return FeatureState::GetCameraZoomValue(); }
+void    IpcBridge_SetCameraZoom(bool active, float zoom)      { FeatureState::SetCameraZoom(active, zoom); }
+bool    IpcBridge_GetCameraAngleActive()                      { return FeatureState::GetCameraAngleActive(); }
+int     IpcBridge_GetCameraAngleValue()                       { return FeatureState::GetCameraAngleValue(); }
+void    IpcBridge_SetCameraAngle(bool active, int angle)      { FeatureState::SetCameraAngle(active, angle); }
+bool    IpcBridge_GetCameraCenteringActive()                  { return FeatureState::GetCameraCenteringActive(); }
+bool    IpcBridge_GetCameraCentered()                         { return FeatureState::GetCameraCentered(); }
+void    IpcBridge_SetCameraCentering(bool active, bool c)     { FeatureState::SetCameraCentering(active, c); }
 
-LOAD_BOOL(IpcBridge_GetCameraZoomActive, s_featCameraZoomActive)
-LOAD_FLOAT(IpcBridge_GetCameraZoomValue, s_featCameraZoomValue)
-void IpcBridge_SetCameraZoom(bool active, float zoom) { s_featCameraZoomActive.store(active ? 1 : 0, std::memory_order_relaxed); s_featCameraZoomValue.store(zoom, std::memory_order_relaxed); }
-LOAD_BOOL(IpcBridge_GetCameraAngleActive, s_featCameraAngleActive)
-LOAD_INT(IpcBridge_GetCameraAngleValue, s_featCameraAngleValue)
-void IpcBridge_SetCameraAngle(bool active, int angle) { s_featCameraAngleActive.store(active ? 1 : 0, std::memory_order_relaxed); s_featCameraAngleValue.store(angle, std::memory_order_relaxed); }
-LOAD_BOOL(IpcBridge_GetCameraCenteringActive, s_featCameraCenteringActive)
-LOAD_BOOL(IpcBridge_GetCameraCentered, s_featCameraCentered)
-void IpcBridge_SetCameraCentering(bool active, bool centered) { s_featCameraCenteringActive.store(active ? 1 : 0, std::memory_order_relaxed); s_featCameraCentered.store(centered ? 1 : 0, std::memory_order_relaxed); }
-
-LOAD_BOOL(IpcBridge_GetSkinOverrideEnabled, s_featSkinOverrideEnabled)
-LOAD_INT(IpcBridge_GetSkinOverrideId, s_featSkinOverrideId)
-void IpcBridge_SetSkinOverride(bool enabled, int skinId) { s_featSkinOverrideEnabled.store(enabled ? 1 : 0, std::memory_order_relaxed); s_featSkinOverrideId.store(skinId, std::memory_order_relaxed); SkinChanger::SetOverride(enabled, skinId); }
-int32_t IpcBridge_GetClientDefense() { return s_featClientDefense.load(std::memory_order_relaxed); }
-int32_t IpcBridge_GetClientClassType() { return s_featClientClassType.load(std::memory_order_relaxed); }
-
-#undef LOAD_BOOL
-#undef LOAD_INT
-#undef LOAD_FLOAT
-#undef STORE_BOOL
+bool    IpcBridge_GetSkinOverrideEnabled()                    { return FeatureState::GetSkinOverrideEnabled(); }
+int     IpcBridge_GetSkinOverrideId()                         { return FeatureState::GetSkinOverrideId(); }
+void    IpcBridge_SetSkinOverride(bool enabled, int skinId)   { FeatureState::SetSkinOverride(enabled, skinId); }
+int32_t IpcBridge_GetClientDefense()                          { return FeatureState::GetClientDefense(); }
+int32_t IpcBridge_GetClientClassType()                        { return FeatureState::GetClientClassType(); }
 
 // Floating text and render-thread apply entry
 
@@ -448,11 +434,6 @@ struct FeatureCommand {
     float Float() const { return static_cast<float>(atof(value)); }
 };
 
-static void StoreBool(std::atomic<int>& target, bool value) { target.store(value ? 1 : 0, std::memory_order_relaxed); }
-static void StoreInt(std::atomic<int>& target, int value) { target.store(value, std::memory_order_relaxed); }
-static void StoreInt32(std::atomic<int32_t>& target, int value) { target.store(static_cast<int32_t>(value), std::memory_order_relaxed); }
-static void StoreFloat(std::atomic<float>& target, float value) { target.store(value, std::memory_order_relaxed); }
-
 struct FeatureHandler { const char* key; bool (*apply)(const FeatureCommand&); };
 
 static bool ApplyFeatureTable(const FeatureCommand& f, const FeatureHandler* handlers, size_t count)
@@ -468,10 +449,6 @@ static bool ApplyFeatureTable(const FeatureCommand& f, const FeatureHandler* han
 #define FH_INT_BOOL(key, fn) FH(key, fn(f.Int() != 0))
 #define FH_FLOAT(key, fn) FH(key, fn(f.Float()))
 #define FH_TEXT(key, fn) FH(key, fn(f.value))
-#define FH_STORE_BOOL(key, atom) FH(key, StoreBool(atom, f.Bool()))
-#define FH_STORE_INT(key, atom) FH(key, StoreInt(atom, f.Int()))
-#define FH_STORE_INT32(key, atom) FH(key, StoreInt32(atom, f.Int()))
-#define FH_STORE_FLOAT(key, atom) FH(key, StoreFloat(atom, f.Float()))
 
 static bool ParseSetFeatureCommand(char* json, const char* seqStr, const char* macHex, FeatureCommand* out)
 {
@@ -550,11 +527,11 @@ static bool ApplyCoreFeature(const FeatureCommand& f)
         FH_BOOL("autoAimIgnoreWalls", AutoAim::SetIgnoreWalls),
         FH("projectileNoclipEnabled", {
             const bool on = f.Bool();
-            StoreBool(s_featProjectileNoclipEnabled, on);
+            FeatureState::SetProjectileNoclipEnabled(on);
             if (!on) ProjNoclip::SetEnabled(false);
         }),
-        FH_STORE_INT32("clientDefense", s_featClientDefense),
-        FH_STORE_INT32("clientClassType", s_featClientClassType),
+        FH("clientDefense", FeatureState::SetClientDefense(static_cast<int32_t>(f.Int()))),
+        FH("clientClassType", FeatureState::SetClientClassType(static_cast<int32_t>(f.Int()))),
         FH_INT("autoDodgeMode", IpcBridge_SetAutoDodgeMode),
         FH_FLOAT("autoDodgeHorizonMs", IpcBridge_SetAutoDodgeHorizonMs),
         FH_FLOAT("autoDodgeHitboxPadding", IpcBridge_SetAutoDodgeHitboxPadding),
@@ -629,22 +606,22 @@ static bool ApplyRolloutFeature(const FeatureCommand& f)
 static bool ApplyInputCameraSkinFeature(const FeatureCommand& f)
 {
     static const FeatureHandler h[] = {
-        FH_STORE_BOOL("playerNoclipActive", s_featPlayerNoclipActive),
-        FH_STORE_BOOL("playerNoclipEnabled", s_featPlayerNoclipEnabled),
-        FH("playerNoclipHotkey", StoreInt(s_featPlayerNoclipHotkeyVk, ResolveHotkeyVk(f.value))),
-        FH_STORE_BOOL("socketHotkeyActive", s_featSocketHotkeyActive),
-        FH("socketHotkey", StoreInt(s_featSocketHotkeyVk, ResolveHotkeyVk(f.value))),
-        FH_STORE_FLOAT("walkTargetX", s_featWalkTargetX),
-        FH_STORE_FLOAT("walkTargetY", s_featWalkTargetY),
-        FH_STORE_BOOL("walkTargetActive", s_featWalkTargetActive),
-        FH("cameraZoomActive", IpcBridge_SetCameraZoom(f.Bool(), s_featCameraZoomValue.load(std::memory_order_relaxed))),
-        FH("cameraZoomValue", IpcBridge_SetCameraZoom(s_featCameraZoomActive.load(std::memory_order_relaxed) != 0, f.Float())),
-        FH("cameraAngleActive", IpcBridge_SetCameraAngle(f.Bool(), s_featCameraAngleValue.load(std::memory_order_relaxed))),
-        FH("cameraAngleValue", IpcBridge_SetCameraAngle(s_featCameraAngleActive.load(std::memory_order_relaxed) != 0, f.Int())),
-        FH("cameraCenteringActive", IpcBridge_SetCameraCentering(f.Bool(), s_featCameraCentered.load(std::memory_order_relaxed) != 0)),
-        FH("cameraCentered", IpcBridge_SetCameraCentering(s_featCameraCenteringActive.load(std::memory_order_relaxed) != 0, f.Bool())),
-        FH("skinOverrideEnabled", IpcBridge_SetSkinOverride(f.Bool(), s_featSkinOverrideId.load(std::memory_order_relaxed))),
-        FH("skinOverrideId", IpcBridge_SetSkinOverride(s_featSkinOverrideEnabled.load(std::memory_order_relaxed) != 0, f.Int()))
+        FH("playerNoclipActive",      FeatureState::SetPlayerNoclipActive(f.Bool())),
+        FH("playerNoclipEnabled",     FeatureState::SetPlayerNoclipEnabled(f.Bool())),
+        FH("playerNoclipHotkey",      FeatureState::SetPlayerNoclipHotkeyVk(ResolveHotkeyVk(f.value))),
+        FH("socketHotkeyActive",      FeatureState::SetSocketHotkeyActive(f.Bool())),
+        FH("socketHotkey",            FeatureState::SetSocketHotkeyVk(ResolveHotkeyVk(f.value))),
+        FH("walkTargetX",             FeatureState::SetWalkTarget(f.Float(), FeatureState::GetWalkTargetY(), FeatureState::GetWalkTargetActive())),
+        FH("walkTargetY",             FeatureState::SetWalkTarget(FeatureState::GetWalkTargetX(), f.Float(), FeatureState::GetWalkTargetActive())),
+        FH("walkTargetActive",        FeatureState::SetWalkTarget(FeatureState::GetWalkTargetX(), FeatureState::GetWalkTargetY(), f.Bool())),
+        FH("cameraZoomActive",        FeatureState::SetCameraZoom(f.Bool(), FeatureState::GetCameraZoomValue())),
+        FH("cameraZoomValue",         FeatureState::SetCameraZoom(FeatureState::GetCameraZoomActive(), f.Float())),
+        FH("cameraAngleActive",       FeatureState::SetCameraAngle(f.Bool(), FeatureState::GetCameraAngleValue())),
+        FH("cameraAngleValue",        FeatureState::SetCameraAngle(FeatureState::GetCameraAngleActive(), f.Int())),
+        FH("cameraCenteringActive",   FeatureState::SetCameraCentering(f.Bool(), FeatureState::GetCameraCentered())),
+        FH("cameraCentered",          FeatureState::SetCameraCentering(FeatureState::GetCameraCenteringActive(), f.Bool())),
+        FH("skinOverrideEnabled",     FeatureState::SetSkinOverride(f.Bool(), FeatureState::GetSkinOverrideId())),
+        FH("skinOverrideId",          FeatureState::SetSkinOverride(FeatureState::GetSkinOverrideEnabled(), f.Int()))
     };
     return ApplyFeatureTable(f, h, sizeof(h) / sizeof(h[0]));
 }
@@ -665,10 +642,6 @@ static bool ApplyDangerPlannerFeature(const FeatureCommand& f)
     return ApplyFeatureTable(f, h, sizeof(h) / sizeof(h[0]));
 }
 
-#undef FH_STORE_FLOAT
-#undef FH_STORE_INT32
-#undef FH_STORE_INT
-#undef FH_STORE_BOOL
 #undef FH_TEXT
 #undef FH_FLOAT
 #undef FH_INT_BOOL
@@ -845,7 +818,7 @@ DWORD WINAPI IpcBridgeThread(LPVOID)
                     break;
                 }
 
-                const int noclipEnabled = s_pendingPlayerNoclipEnabled.exchange(-1, std::memory_order_relaxed);
+                const int noclipEnabled = FeatureState::ConsumePendingPlayerNoclipEnabled();
                 if (noclipEnabled >= 0 && !WriteSignedHotkeyEvent(hPipe, msgBuf, sizeof(msgBuf), "player-noclip", "noclipEnabled", noclipEnabled != 0)) {
                     connected = false;
                     break;
