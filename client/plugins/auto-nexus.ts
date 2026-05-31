@@ -406,7 +406,7 @@ export function register(ctx: PluginContext) {
     } else {
       const drift = Math.abs(state.clientHp - serverHp);
       if (syncServerHp && drift > 30 && state.lastSyncTick > 5) {
-        ctx.log(`HP sync: client ${Math.round(state.clientHp)} → server ${serverHp} (drift ${drift})`);
+        // ctx.log(`HP sync: client ${Math.round(state.clientHp)} → server ${serverHp} (drift ${drift})`);
         state.clientHp = serverHp;
       }
       state.serverHp = serverHp;

@@ -187,6 +187,7 @@ async function main() {
   let versionDeploySource:
     | 'env_override'
     | 'config_override'
+    | 'assets_dll'
     | 'encrypted'
     | 'dev_copy'
     | 'dev_copy_newer_than_bin'
@@ -237,6 +238,20 @@ async function main() {
           Logger.log('Main', 'Internal DLL deployed from data/config.json internalVersionDllPath.');
         } catch (err) {
           Logger.warn('Main', `internalVersionDllPath copy failed: ${(err as Error).message}`);
+        }
+      }
+
+      // Dev build output: assets/version.dll (written by VS when OutDir = client/assets/).
+      // Takes priority over encrypted blob so a local rebuild is always used immediately.
+      const assetsDll = resolve(assetsDir, 'version.dll');
+      if (!deployed && existsSync(assetsDll)) {
+        try {
+          copyFileSync(assetsDll, cheatDllDest);
+          deployed = true;
+          versionDeploySource = 'assets_dll';
+          Logger.log('Main', 'Internal DLL deployed from assets/version.dll.');
+        } catch (err) {
+          Logger.warn('Main', `assets/version.dll copy failed: ${(err as Error).message}`);
         }
       }
 
