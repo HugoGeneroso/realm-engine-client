@@ -1,6 +1,10 @@
 #include "pch-il2cpp.h"
 #include "IpcBridgeIncludes.hpp"
 #include "IpcTileState.h"
+#include "IpcFraming.h"
+#include "IpcJson.h"
+#include "IpcMessages.h"
+#include "IpcSession.h"
 
 // Debug logging
 
@@ -348,192 +352,13 @@ void IpcBridge_EmitPredictedHit(int ownerObjId, int bulletId)
     if (s_pendingEvents.size() < kPendingEventsCap) s_pendingEvents.push_back(ev);
 }
 
-// Pipe framing
 
-static bool PipeWriteMessage(HANDLE hPipe, const char* json, int len)
-{
-    uint32_t netLen = static_cast<uint32_t>(len);
-    DWORD written = 0;
-    if (!WriteFile(hPipe, &netLen, 4, &written, NULL) || written != 4) return false;
-    if (!WriteFile(hPipe, json, netLen, &written, NULL) || written != netLen) return false;
-    return true;
-}
 
-static int PipeReadMessage(HANDLE hPipe, char* buf, int bufSize)
-{
-    DWORD bytesAvail = 0;
-    if (!PeekNamedPipe(hPipe, NULL, 0, NULL, &bytesAvail, NULL)) return -1;
-    if (bytesAvail < 4) return 0;
-    uint32_t msgLen = 0;
-    DWORD bytesRead = 0;
-    if (!ReadFile(hPipe, &msgLen, 4, &bytesRead, NULL) || bytesRead != 4) return -1;
-    if (msgLen == 0 || msgLen >= (uint32_t)bufSize) return -1;
-    if (!ReadFile(hPipe, buf, msgLen, &bytesRead, NULL) || bytesRead != msgLen) return -1;
-    buf[msgLen] = '\0';
-    return (int)msgLen;
-}
 
-// Outbound JSON builders
 
-static int BuildHelloJson(char* buf, int bufSize, const char* challenge)
-{
-    return snprintf(buf, bufSize, "{\"type\":\"hello\",\"version\":3,\"protocol\":\"bridge-v3\",\"challenge\":\"%s\",\"features\":[\"autoDodge\",\"autoAim\",\"tileMap\"]}", challenge);
-}
 
-static int BuildAuthResultJson(char* buf, int bufSize, bool ok, const char* response)
-{
-    return ok ? snprintf(buf, bufSize, "{\"type\":\"authResult\",\"ok\":true,\"response\":\"%s\"}", response) : snprintf(buf, bufSize, "{\"type\":\"authResult\",\"ok\":false}");
-}
 
-static int BuildSignedStringJson(char* buf, int bufSize, const char* type, const char* key, const char* value, uint64_t seq, const char* mac)
-{
-    return snprintf(buf, bufSize, "{\"type\":\"%s\",\"%s\":\"%s\",\"seq\":\"%llu\",\"mac\":\"%s\"}", type, key, value, static_cast<unsigned long long>(seq), mac);
-}
 
-static int BuildHeartbeatJson(char* b, int n, const char* nonce, uint64_t seq, const char* mac) { return BuildSignedStringJson(b, n, "heartbeat", "nonce", nonce, seq, mac); }
-static int BuildHeartbeatRespJson(char* b, int n, const char* resp, uint64_t seq, const char* mac) { return BuildSignedStringJson(b, n, "heartbeatResp", "response", resp, seq, mac); }
-static int BuildUnresolvedClassesJson(char* b, int n, const char* classes, uint64_t seq, const char* mac) { return BuildSignedStringJson(b, n, "unresolvedClasses", "classes", classes, seq, mac); }
-static int BuildPlayerJson(char* buf, int bufSize, uint64_t seq, const char* mac)
-{
-    float posX = LocalPlayer::GetX(), posY = LocalPlayer::GetY();
-    int32_t hp = LocalPlayer::GetHP(), maxHp = LocalPlayer::GetMaxHP(), def = LocalPlayer::GetDefense();
-    if (!LocalPlayer::GetPtr())
-        return snprintf(buf, bufSize, "{\"type\":\"player\",\"alive\":false,\"seq\":\"%llu\",\"mac\":\"%s\"}", static_cast<unsigned long long>(seq), mac);
-    return snprintf(buf, bufSize, "{\"type\":\"player\",\"alive\":true,\"hp\":%d,\"maxHp\":%d,\"def\":%d,\"posX\":%.3f,\"posY\":%.3f,\"seq\":\"%llu\",\"mac\":\"%s\"}", hp, maxHp, def, (double)posX, (double)posY, static_cast<unsigned long long>(seq), mac);
-}
-
-static int BuildHotkeyEventJson(char* buf, int bufSize, const char* pluginId, const char* action, bool value, uint64_t seq, const char* mac)
-{
-    return snprintf(buf, bufSize, "{\"type\":\"hotkeyEvent\",\"pluginId\":\"%s\",\"action\":\"%s\",\"value\":%s,\"seq\":\"%llu\",\"mac\":\"%s\"}", pluginId, action, value ? "true" : "false", static_cast<unsigned long long>(seq), mac);
-}
-
-// JSON parsing helpers
-
-static char* JsonGetString(char* json, const char* key, char* valBuf, int valBufSize)
-{
-    char pattern[128];
-    snprintf(pattern, sizeof(pattern), "\"%s\":\"", key);
-    char* start = strstr(json, pattern);
-    if (!start) return NULL;
-    start += strlen(pattern);
-    char* end = strchr(start, '"');
-    if (!end) return NULL;
-    int len = (int)(end - start);
-    if (len >= valBufSize) len = valBufSize - 1;
-    memcpy(valBuf, start, len);
-    valBuf[len] = '\0';
-    return valBuf;
-}
-
-static bool JsonGetBool(char* json, const char* key)
-{
-    char valBuf[16] = {};
-    if (JsonGetString(json, key, valBuf, sizeof(valBuf))) return strcmp(valBuf, "true") == 0 || strcmp(valBuf, "1") == 0;
-    char pattern[128];
-    snprintf(pattern, sizeof(pattern), "\"%s\":", key);
-    const char* p = strstr(json, pattern);
-    if (!p) return false;
-    p += strlen(pattern);
-    while (*p == ' ') p++;
-    return strncmp(p, "true", 4) == 0;
-}
-
-static bool JsonGetNumberToken(char* json, const char* key, char* outBuf, int outBufSize)
-{
-    if (!json || !key || !outBuf || outBufSize <= 1) return false;
-    char pattern[128];
-    snprintf(pattern, sizeof(pattern), "\"%s\":", key);
-    const char* p = strstr(json, pattern);
-    if (!p) return false;
-    p += strlen(pattern);
-    while (*p == ' ') p++;
-    int i = 0;
-    if (*p == '-') { if (i < outBufSize - 1) outBuf[i++] = *p; ++p; }
-    bool seenDigit = false;
-    while ((*p >= '0' && *p <= '9') || *p == '.') { seenDigit = true; if (i >= outBufSize - 1) return false; outBuf[i++] = *p++; }
-    if (!seenDigit) return false;
-    outBuf[i] = '\0';
-    return true;
-}
-
-// Session validation and signing helpers
-
-static bool IsAsciiIdSafe(const char* s)
-{
-    if (!s || !*s) return false;
-    size_t len = strlen(s);
-    if (len > 96) return false;
-    for (size_t i = 0; i < len; ++i) {
-        const char c = s[i];
-        const bool ok =
-            (c >= 'a' && c <= 'z') ||
-            (c >= 'A' && c <= 'Z') ||
-            (c >= '0' && c <= '9') ||
-            c == '-' || c == '_' || c == '.';
-        if (!ok) return false;
-    }
-    return true;
-}
-
-static bool ParseUint64Dec(const char* s, uint64_t* out)
-{
-    if (!s || !*s || !out) return false;
-    uint64_t acc = 0;
-    for (const char* p = s; *p; ++p) {
-        if (*p < '0' || *p > '9') return false;
-        const uint64_t digit = static_cast<uint64_t>(*p - '0');
-        const uint64_t next = acc * 10ULL + digit;
-        if (next < acc) return false;
-        acc = next;
-    }
-    *out = acc;
-    return true;
-}
-
-static bool ConstantTimeHexEq64(const char* a, const char* b)
-{
-    if (!a || !b) return false;
-    if (strlen(a) != 64 || strlen(b) != 64) return false;
-    uint8_t diff = 0;
-    for (int i = 0; i < 64; ++i) diff |= static_cast<uint8_t>(a[i] ^ b[i]);
-    return diff == 0;
-}
-
-static bool DeriveSessionKey(const char* serverChallenge, const char* clientChallenge, const char* userId, const char* clientPid, uint8_t outKey[32])
-{
-    if (!serverChallenge || !clientChallenge || !userId || !clientPid || !outKey) return false;
-    if (strlen(serverChallenge) != 64 || !Handshake::IsHexString(serverChallenge, 64)) return false;
-    if (strlen(clientChallenge) != 64 || !Handshake::IsHexString(clientChallenge, 64)) return false;
-    if (!IsAsciiIdSafe(userId)) return false;
-    uint64_t pidNum = 0;
-    if (!ParseUint64Dec(clientPid, &pidNum) || pidNum == 0) return false;
-    char data[512] = {};
-    snprintf(
-        data, sizeof(data),
-        "%s|%s|%s|%s|%s|session-v2",
-        serverChallenge, clientChallenge, userId, clientPid, PipeName()
-    );
-    return Handshake::HmacSha256(
-        Handshake::GetSharedKey(), 32,
-        reinterpret_cast<const uint8_t*>(data), strlen(data),
-        outKey
-    );
-}
-
-static bool ComputeSessionMacHex(const uint8_t key[32], uint64_t seq, const char* type, const char* payload, char outHex[65])
-{
-    if (!key || !type || !payload || !outHex) return false;
-    char data[1024] = {};
-    snprintf(data, sizeof(data), "%llu|%s|%s", static_cast<unsigned long long>(seq), type, payload);
-    uint8_t mac[32] = {};
-    if (!Handshake::HmacSha256(
-        key, 32,
-        reinterpret_cast<const uint8_t*>(data), strlen(data),
-        mac
-    )) return false;
-    Handshake::ToHex(mac, 32, outHex);
-    return true;
-}
 
 static bool WriteSignedHotkeyEvent(HANDLE hPipe, char* msgBuf, int msgBufSize, const char* pluginId, const char* action, bool value)
 {
@@ -542,60 +367,38 @@ static bool WriteSignedHotkeyEvent(HANDLE hPipe, char* msgBuf, int msgBufSize, c
     snprintf(payload, sizeof(payload), "%s|%s|%s", pluginId, action, value ? "true" : "false");
     const uint64_t outSeq = s_auth.nextServerSeq++;
     char outMac[65] = {};
-    if (!ComputeSessionMacHex(s_auth.sessionKey, outSeq, "hotkeyEvent", payload, outMac)) return false;
-    const int len = BuildHotkeyEventJson(msgBuf, msgBufSize, pluginId, action, value, outSeq, outMac);
-    return PipeWriteMessage(hPipe, msgBuf, len);
-}
-static void BuildPlayerSigPayload(char* outBuf, int outBufSize)
-{
-    if (!outBuf || outBufSize <= 0) return;
-    float posX = LocalPlayer::GetX();
-    float posY = LocalPlayer::GetY();
-    int32_t hp    = LocalPlayer::GetHP();
-    int32_t maxHp = LocalPlayer::GetMaxHP();
-    int32_t def   = LocalPlayer::GetDefense();
-    if (!LocalPlayer::GetPtr()) {snprintf(outBuf, outBufSize, "alive:false"); return; }
-    snprintf(outBuf, outBufSize, "alive:true|hp:%d|maxHp:%d|posX:%.3f|posY:%.3f|def:%d", hp, maxHp, (double)posX, (double)posY, def);
-}
-static bool VerifyClientSeqAndMac(const char* seqStr, const char* macHex, const char* type, const char* payload)
-{
-    (void)macHex; (void)type; (void)payload;
-    if (!s_auth.authenticated) return false;
-    if (!seqStr) return false;
-    uint64_t seq = 0;
-    if (!ParseUint64Dec(seqStr, &seq)) return false;
-    if (seq <= s_auth.lastClientSeq) return false;
-    s_auth.lastClientSeq = seq;
-    return true;
+    if (!IpcSession::ComputeSessionMacHex(s_auth.sessionKey, outSeq, "hotkeyEvent", payload, outMac)) return false;
+    const int len = IpcMessages::BuildHotkeyEvent(msgBuf, msgBufSize, pluginId, action, value, outSeq, outMac);
+    return IpcFraming::WriteMessage(hPipe, msgBuf, len);
 }
 
 // Auth and heartbeat dispatcher
 
 static void WriteAuthResult(HANDLE hPipe, char* msgBuf, int msgBufSize, bool ok, const char* response = "")
 {
-    PipeWriteMessage(hPipe, msgBuf, BuildAuthResultJson(msgBuf, msgBufSize, ok, response));
+    IpcFraming::WriteMessage(hPipe, msgBuf, IpcMessages::BuildAuthResult(msgBuf, msgBufSize, ok, response));
 }
 
 static bool DispatchAuthMessage(char* json, HANDLE hPipe, char* msgBuf, int msgBufSize)
 {
     char typeBuf[64] = {};
-    if (!JsonGetString(json, "type", typeBuf, sizeof(typeBuf))) return false;
+    if (!IpcJson::GetString(json, "type", typeBuf, sizeof(typeBuf))) return false;
     if (strcmp(typeBuf, "auth") == 0) {
         char userId[128] = {}, response[128] = {}, clientChallenge[128] = {}, protocol[32] = {}, clientPid[32] = {};
-        if (!JsonGetString(json, "userId", userId, sizeof(userId)) ||
-            !JsonGetString(json, "response", response, sizeof(response)) ||
-            !JsonGetString(json, "challenge", clientChallenge, sizeof(clientChallenge)) ||
-            !JsonGetString(json, "protocol", protocol, sizeof(protocol)) ||
-            !JsonGetString(json, "clientPid", clientPid, sizeof(clientPid))) { DbgLog("Auth message missing required fields."); WriteAuthResult(hPipe, msgBuf, msgBufSize, false); return true; }
+        if (!IpcJson::GetString(json, "userId", userId, sizeof(userId)) ||
+            !IpcJson::GetString(json, "response", response, sizeof(response)) ||
+            !IpcJson::GetString(json, "challenge", clientChallenge, sizeof(clientChallenge)) ||
+            !IpcJson::GetString(json, "protocol", protocol, sizeof(protocol)) ||
+            !IpcJson::GetString(json, "clientPid", clientPid, sizeof(clientPid))) { DbgLog("Auth message missing required fields."); WriteAuthResult(hPipe, msgBuf, msgBufSize, false); return true; }
 
-        if (!IsAsciiIdSafe(userId) ||
+        if (!IpcSession::IsAsciiIdSafe(userId) ||
             strcmp(protocol, "bridge-v3") != 0 ||
             strlen(response) != 64 || !Handshake::IsHexString(response, 64) ||
             strlen(clientChallenge) != 64 || !Handshake::IsHexString(clientChallenge, 64) ||
             strlen(s_auth.pendingChallenge) != 64 || !Handshake::IsHexString(s_auth.pendingChallenge, 64)) { DbgLog("Auth payload failed format validation."); WriteAuthResult(hPipe, msgBuf, msgBufSize, false); return true; }
         strncpy_s(s_auth.userId, sizeof(s_auth.userId), userId, _TRUNCATE);
 
-        if (!DeriveSessionKey(s_auth.pendingChallenge, clientChallenge, s_auth.userId, clientPid, s_auth.sessionKey)) { DbgLog("Session key derivation failed."); WriteAuthResult(hPipe, msgBuf, msgBufSize, false); return true; }
+        if (!IpcSession::DeriveSessionKey(s_auth.pendingChallenge, clientChallenge, s_auth.userId, clientPid, s_auth.sessionKey, PipeName())) { DbgLog("Session key derivation failed."); WriteAuthResult(hPipe, msgBuf, msgBufSize, false); return true; }
         s_auth.authenticated = true; s_auth.sessionReady = true; s_auth.heartbeatMisses = 0; s_auth.lastHeartbeatRecv = GetTickCount64(); s_auth.lastClientSeq = 0; s_auth.nextServerSeq = 1;
         DbgLog("Auth OK: userId=%s", userId);
         char dllResponse[65] = {};
@@ -606,10 +409,10 @@ static bool DispatchAuthMessage(char* json, HANDLE hPipe, char* msgBuf, int msgB
 
     if (strcmp(typeBuf, "heartbeatResp") == 0) {
         char response[128] = {}, seqStr[32] = {}, macHex[128] = {};
-        if (!JsonGetString(json, "response", response, sizeof(response))) return true;
-        if (!JsonGetString(json, "seq", seqStr, sizeof(seqStr))) return true;
-        if (!JsonGetString(json, "mac", macHex, sizeof(macHex))) return true;
-        if (strlen(response) != 64 || !Handshake::IsHexString(response, 64) || !VerifyClientSeqAndMac(seqStr, macHex, "heartbeatResp", response)) { s_auth.heartbeatMisses++; return true; }
+        if (!IpcJson::GetString(json, "response", response, sizeof(response))) return true;
+        if (!IpcJson::GetString(json, "seq", seqStr, sizeof(seqStr))) return true;
+        if (!IpcJson::GetString(json, "mac", macHex, sizeof(macHex))) return true;
+        if (strlen(response) != 64 || !Handshake::IsHexString(response, 64) || !IpcSession::VerifyClientSeqAndMac(&s_auth, seqStr, macHex, "heartbeatResp", response)) { s_auth.heartbeatMisses++; return true; }
         if (s_auth.challengePending && Handshake::VerifyResponse(s_auth.pendingChallenge, strlen(s_auth.pendingChallenge), response)) { s_auth.challengePending = false; s_auth.heartbeatMisses = 0; s_auth.lastHeartbeatRecv = GetTickCount64(); }
         else s_auth.heartbeatMisses++;
         return true;
@@ -617,16 +420,16 @@ static bool DispatchAuthMessage(char* json, HANDLE hPipe, char* msgBuf, int msgB
 
     if (strcmp(typeBuf, "heartbeat") == 0) {
         char nonce[128] = {}, seqStr[32] = {}, macHex[128] = {};
-        if (!JsonGetString(json, "nonce", nonce, sizeof(nonce))) return true;
-        if (!JsonGetString(json, "seq", seqStr, sizeof(seqStr))) return true;
-        if (!JsonGetString(json, "mac", macHex, sizeof(macHex))) return true;
+        if (!IpcJson::GetString(json, "nonce", nonce, sizeof(nonce))) return true;
+        if (!IpcJson::GetString(json, "seq", seqStr, sizeof(seqStr))) return true;
+        if (!IpcJson::GetString(json, "mac", macHex, sizeof(macHex))) return true;
         if (strlen(nonce) != 64 || !Handshake::IsHexString(nonce, 64)) return true;
-        if (!VerifyClientSeqAndMac(seqStr, macHex, "heartbeat", nonce)) return true;
+        if (!IpcSession::VerifyClientSeqAndMac(&s_auth, seqStr, macHex, "heartbeat", nonce)) return true;
         char resp[65] = {}, outMac[65] = {};
         if (!Handshake::ComputeResponse(nonce, strlen(nonce), resp)) return true;
         const uint64_t outSeq = s_auth.nextServerSeq++;
-        if (!ComputeSessionMacHex(s_auth.sessionKey, outSeq, "heartbeatResp", resp, outMac)) return true;
-        PipeWriteMessage(hPipe, msgBuf, BuildHeartbeatRespJson(msgBuf, msgBufSize, resp, outSeq, outMac));
+        if (!IpcSession::ComputeSessionMacHex(s_auth.sessionKey, outSeq, "heartbeatResp", resp, outMac)) return true;
+        IpcFraming::WriteMessage(hPipe, msgBuf, IpcMessages::BuildHeartbeatResp(msgBuf, msgBufSize, resp, outSeq, outMac));
         return true;
     }
     return false;
@@ -673,20 +476,20 @@ static bool ApplyFeatureTable(const FeatureCommand& f, const FeatureHandler* han
 static bool ParseSetFeatureCommand(char* json, const char* seqStr, const char* macHex, FeatureCommand* out)
 {
     if (!out) return false;
-    if (!JsonGetString(json, "key", out->key, sizeof(out->key))) return false;
-    if (!JsonGetString(json, "valueType", out->valueType, sizeof(out->valueType))) return false;
+    if (!IpcJson::GetString(json, "key", out->key, sizeof(out->key))) return false;
+    if (!IpcJson::GetString(json, "valueType", out->valueType, sizeof(out->valueType))) return false;
     if (strcmp(out->valueType, "b") == 0) {
-        strncpy_s(out->value, sizeof(out->value), JsonGetBool(json, "value") ? "true" : "false", _TRUNCATE);
+        strncpy_s(out->value, sizeof(out->value), IpcJson::GetBool(json, "value") ? "true" : "false", _TRUNCATE);
     } else if (strcmp(out->valueType, "n") == 0) {
-        if (!JsonGetNumberToken(json, "value", out->value, sizeof(out->value))) return false;
+        if (!IpcJson::GetNumberToken(json, "value", out->value, sizeof(out->value))) return false;
     } else if (strcmp(out->valueType, "s") == 0) {
-        if (!JsonGetString(json, "value", out->value, sizeof(out->value))) return false;
+        if (!IpcJson::GetString(json, "value", out->value, sizeof(out->value))) return false;
     } else {
         return false;
     }
     char payload[256] = {};
     snprintf(payload, sizeof(payload), "%s|%s|%s", out->key, out->valueType, out->value);
-    if (!VerifyClientSeqAndMac(seqStr, macHex, "setFeature", payload)) {
+    if (!IpcSession::VerifyClientSeqAndMac(&s_auth, seqStr, macHex, "setFeature", payload)) {
         DBG_FILE_LOG("[IpcBridge] setFeature HMAC REJECTED: key=" << out->key << " valueType=" << out->valueType << " value=" << out->value);
         return false;
     }
@@ -704,21 +507,21 @@ static void QueuePluginFloatingText(const char* text)
 static bool DispatchTileCommand(const char* type, char* json, const char* seqStr, const char* macHex)
 {
     if (strcmp(type, "clearTiles") == 0) {
-        if (!VerifyClientSeqAndMac(seqStr, macHex, "clearTiles", "")) return true;
+        if (!IpcSession::VerifyClientSeqAndMac(&s_auth, seqStr, macHex, "clearTiles", "")) return true;
         IpcTileState::ClearTiles();
         return true;
     }
     if (strcmp(type, "noWalkInit") == 0) {
         char typesBuf[8192] = {};
-        if (!JsonGetString(json, "types", typesBuf, sizeof(typesBuf))) return true;
-        if (!VerifyClientSeqAndMac(seqStr, macHex, "noWalkInit", typesBuf)) return true;
+        if (!IpcJson::GetString(json, "types", typesBuf, sizeof(typesBuf))) return true;
+        if (!IpcSession::VerifyClientSeqAndMac(&s_auth, seqStr, macHex, "noWalkInit", typesBuf)) return true;
         IpcTileState::InitNoWalkTypes(typesBuf);
         return true;
     }
     if (strcmp(type, "tileUpdate") == 0) {
         char tilesBuf[65000] = {};
-        if (!JsonGetString(json, "tiles", tilesBuf, sizeof(tilesBuf))) return true;
-        if (!VerifyClientSeqAndMac(seqStr, macHex, "tileUpdate", tilesBuf)) return true;
+        if (!IpcJson::GetString(json, "tiles", tilesBuf, sizeof(tilesBuf))) return true;
+        if (!IpcSession::VerifyClientSeqAndMac(&s_auth, seqStr, macHex, "tileUpdate", tilesBuf)) return true;
         IpcTileState::ApplyTileUpdate(tilesBuf);
         return true;
     }
@@ -889,9 +692,9 @@ static void DispatchCommand(char* json)
     char typeBuf[64] = {};
     char seqStr[32] = {};
     char macHex[128] = {};
-    if (!JsonGetString(json, "type", typeBuf, sizeof(typeBuf))) return;
-    if (!JsonGetString(json, "seq", seqStr, sizeof(seqStr))) return;
-    if (!JsonGetString(json, "mac", macHex, sizeof(macHex))) return;
+    if (!IpcJson::GetString(json, "type", typeBuf, sizeof(typeBuf))) return;
+    if (!IpcJson::GetString(json, "seq", seqStr, sizeof(seqStr))) return;
+    if (!IpcJson::GetString(json, "mac", macHex, sizeof(macHex))) return;
     if (DispatchTileCommand(typeBuf, json, seqStr, macHex)) return;
     if (strcmp(typeBuf, "setFeature") == 0) DispatchSetFeature(json, seqStr, macHex);
 }
@@ -936,8 +739,8 @@ DWORD WINAPI IpcBridgeThread(LPVOID)
         }
 
         strncpy_s(s_auth.pendingChallenge, sizeof(s_auth.pendingChallenge), helloChallenge, _TRUNCATE);
-        int len = BuildHelloJson(msgBuf, sizeof(msgBuf), helloChallenge);
-        if (!PipeWriteMessage(hPipe, msgBuf, len)) {
+        int len = IpcMessages::BuildHello(msgBuf, sizeof(msgBuf), helloChallenge);
+        if (!IpcFraming::WriteMessage(hPipe, msgBuf, len)) {
             DbgLog("Failed to send hello.");
             CloseHandle(hPipe);
             Sleep(1000);
@@ -949,7 +752,7 @@ DWORD WINAPI IpcBridgeThread(LPVOID)
         ULONGLONG authDeadline = GetTickCount64() + 5000;
 
         while (GetTickCount64() < authDeadline && !s_shutdown) {
-            int readLen = PipeReadMessage(hPipe, readBuf, sizeof(readBuf) - 1);
+            int readLen = IpcFraming::ReadMessage(hPipe, readBuf, sizeof(readBuf) - 1);
             if (readLen < 0) break;
             if (readLen > 0) {
                 readBuf[readLen] = '\0';
@@ -977,7 +780,7 @@ DWORD WINAPI IpcBridgeThread(LPVOID)
         bool sentUnresolvedClasses = false;
 
         while (connected && !s_shutdown) {
-            int readLen = PipeReadMessage(hPipe, readBuf, sizeof(readBuf) - 1);
+            int readLen = IpcFraming::ReadMessage(hPipe, readBuf, sizeof(readBuf) - 1);
             if (readLen < 0) {
                 DbgLog("Server disconnected.");
                 connected = false;
@@ -1007,12 +810,12 @@ DWORD WINAPI IpcBridgeThread(LPVOID)
                     s_auth.challengePending = true; s_auth.lastHeartbeatSent = now;
                     const uint64_t outSeq = s_auth.nextServerSeq++;
                     char outMac[65] = {};
-                    if (!ComputeSessionMacHex(s_auth.sessionKey, outSeq, "heartbeat", nonce, outMac)) {
+                    if (!IpcSession::ComputeSessionMacHex(s_auth.sessionKey, outSeq, "heartbeat", nonce, outMac)) {
                         connected = false;
                         break;
                     }
-                    len = BuildHeartbeatJson(msgBuf, sizeof(msgBuf), nonce, outSeq, outMac);
-                    if (!PipeWriteMessage(hPipe, msgBuf, len)) {
+                    len = IpcMessages::BuildHeartbeat(msgBuf, sizeof(msgBuf), nonce, outSeq, outMac);
+                    if (!IpcFraming::WriteMessage(hPipe, msgBuf, len)) {
                         connected = false;
                         break;
                     }
@@ -1023,14 +826,14 @@ DWORD WINAPI IpcBridgeThread(LPVOID)
                 lastPlayerPush = now;
                 const uint64_t outSeq = s_auth.nextServerSeq++;
                 char payload[256] = {};
-                BuildPlayerSigPayload(payload, sizeof(payload));
+                IpcMessages::BuildPlayerSigPayload(payload, sizeof(payload));
                 char outMac[65] = {};
-                if (!ComputeSessionMacHex(s_auth.sessionKey, outSeq, "player", payload, outMac)) {
+                if (!IpcSession::ComputeSessionMacHex(s_auth.sessionKey, outSeq, "player", payload, outMac)) {
                     connected = false;
                     break;
                 }
-                len = BuildPlayerJson(msgBuf, sizeof(msgBuf), outSeq, outMac);
-                if (!PipeWriteMessage(hPipe, msgBuf, len)) {
+                len = IpcMessages::BuildPlayer(msgBuf, sizeof(msgBuf), outSeq, outMac);
+                if (!IpcFraming::WriteMessage(hPipe, msgBuf, len)) {
                     connected = false;
                     break;
                 }
@@ -1068,9 +871,9 @@ DWORD WINAPI IpcBridgeThread(LPVOID)
                 if (classes && classes[0] != '\0') {
                     const uint64_t outSeq = s_auth.nextServerSeq++;
                     char outMac[65] = {};
-                    if (ComputeSessionMacHex(s_auth.sessionKey, outSeq, "unresolvedClasses", classes, outMac)) {
-                        len = BuildUnresolvedClassesJson(msgBuf, sizeof(msgBuf), classes, outSeq, outMac);
-                        PipeWriteMessage(hPipe, msgBuf, len);
+                    if (IpcSession::ComputeSessionMacHex(s_auth.sessionKey, outSeq, "unresolvedClasses", classes, outMac)) {
+                        len = IpcMessages::BuildUnresolvedClasses(msgBuf, sizeof(msgBuf), classes, outSeq, outMac);
+                        IpcFraming::WriteMessage(hPipe, msgBuf, len);
                     }
                 }
             }
