@@ -19,11 +19,11 @@ import { Logger } from './Logger.js';
 // rotmgAssetExtractor) to bundle sharp's native deps even though
 // they never call extractLocalGameAssets. Dynamic + esbuild-external
 // keeps the plugin bundle clean.
-type SharpModule = typeof import('sharp');
-let _sharp: SharpModule['default'] | null = null;
-async function loadSharp(): Promise<SharpModule['default']> {
+type SharpFactory = typeof import('sharp');
+let _sharp: SharpFactory | null = null;
+async function loadSharp(): Promise<SharpFactory> {
   if (_sharp) return _sharp;
-  const mod = await import('sharp');
+  const mod = await import('sharp') as unknown as { default: SharpFactory };
   _sharp = mod.default;
   return _sharp;
 }
@@ -482,6 +482,9 @@ export function isLocalCacheFresh(gameDataDir: string, outDir: string): boolean 
   if (!existsSync(join(outDir, 'objects.xml'))) return false;
   if (!existsSync(join(outDir, 'tiles.xml'))) return false;
   if (!existsSync(join(outDir, 'spritesheet.xml'))) return false;
+  if (!existsSync(join(outDir, 'enchantments.xml'))) return false;
+  if (!existsSync(join(outDir, 'enchantmentLists.xml'))) return false;
+  if (!existsSync(join(outDir, 'enchanterSettings.xml'))) return false;
   try {
     const stored = readFileSync(join(outDir, '.local-build-hash'), 'utf8').trim();
     const current = `${statSync(join(gameDataDir, 'resources.assets')).mtimeMs}:v${SPRITESHEET_PARSER_VERSION}`;

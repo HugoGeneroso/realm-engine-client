@@ -3,6 +3,7 @@
 #include "DangerPlanner.h"
 #include "ProjectileCatalog.h"
 #include "XDodge.h"
+#include "RolloutDodge.h"
 #include <windows.h>
 
 using TestTAB::DodgeMode;
@@ -122,21 +123,26 @@ void ApplyDodgeModeWithEnter(DodgeMode nextMode)
     const bool enabling = nextMode != DodgeMode::Off && s_prevDodgeMode == DodgeMode::Off;
     (void)enabling;
 
-    // XDodge is the only active mode — runs from Detour_AppEngineUpdate.
+    // XDodge and Rollout both run from Detour_AppEngineUpdate; only one is
+    // enabled at a time (mutual exclusivity enforced here).
     XDodge::SetEnabled(nextMode == DodgeMode::XDodge);
+    RolloutDodge::SetEnabled(nextMode == DodgeMode::Rollout);
     if (nextMode == DodgeMode::XDodge) {
         XDodge::OnEnter();
-        // Install the AppEngineManager::Update detour that drives XDodge::Tick.
+        // Install the AppEngineManager::Update detour that drives the dodge Tick.
         // Previously this only happened in the in-game TestTAB render path, so
         // dashboard/IPC-driven dodge (production client, ImGui menu stripped)
         // never installed the hook → Detour_AppEngineUpdate never fired →
-        // XDodge::Tick never ran → dodge silently did nothing while other
-        // IPC features (autoaim) worked. The detour is gated on
-        // XDodge::IsEnabled(), independent of DangerPlanner steering.
+        // Tick never ran → dodge silently did nothing while other IPC features
+        // (autoaim) worked. The detour is gated on XDodge/RolloutDodge
+        // IsEnabled(), independent of DangerPlanner steering.
+        DangerPlanner::TryInstall();
+    } else if (nextMode == DodgeMode::Rollout) {
+        RolloutDodge::OnEnter();
         DangerPlanner::TryInstall();
     }
 
-    // DangerPlanner steering is disabled; XDodge handles movement directly.
+    // DangerPlanner steering is disabled; the active dodge engine drives moves.
     DangerPlanner::SetEnabled(false);
 
     g_dodgeMode = nextMode;
@@ -639,8 +645,10 @@ void TestTAB::Tick(bool menuVisible)
         // Planned-path overlay (toggle-gated inside RenderDebugPath):
         // A* route polyline / BFS committed step, so you can see where the
         // dodge intends to go.
-        if (g_w2sValid)
+        if (g_w2sValid) {
             XDodge::RenderDebugPath(camX, camY, angleRad, zoom, cx, cy);
+            RolloutDodge::RenderDebugPath(camX, camY, angleRad, zoom, cx, cy);
+        }
 
         // Locked enemy visualization — red reticle + two rings:
         //   outer (solid red)  = your actual weapon range (where shots hit)
@@ -940,7 +948,7 @@ void TestTAB::RenderMovementSection()
     ImGui::Indent(8.f);
 
     int modeIdx = static_cast<int>(g_dodgeMode);
-    const char* modeLabels[] = { "Off", "RE-Plus" };
+    const char* modeLabels[] = { "Off", "RE-Plus", "RE-Sim" };
     ImGui::SetNextItemWidth(240.f);
     if (ImGui::Combo("Mode##dodgeModeCombo", &modeIdx, modeLabels, IM_ARRAYSIZE(modeLabels))) {
         ApplyDodgeModeWithEnter(static_cast<DodgeMode>(modeIdx));
@@ -952,6 +960,9 @@ void TestTAB::RenderMovementSection()
     if (g_dodgeMode == DodgeMode::XDodge) {
         ImGui::Spacing();
         XDodge::RenderSettings();
+    } else if (g_dodgeMode == DodgeMode::Rollout) {
+        ImGui::Spacing();
+        RolloutDodge::RenderSettings();
     }
 
     ImGui::Unindent(8.f);

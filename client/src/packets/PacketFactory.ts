@@ -18,13 +18,14 @@ interface PacketDef {
   name: string;
   direction: 'client' | 'server';
   fields: FieldDef[];
+  note?: string;
 }
 
 interface DataObjectDef {
   fields: FieldDef[];
 }
 
-interface DefsFile {
+export interface DefsFile {
   packets: Record<string, PacketDef>;
   dataObjects: Record<string, DataObjectDef>;
 }

@@ -3,6 +3,7 @@ import type { ClientConnection } from '../proxy/ClientConnection.js';
 import type { Packet } from '../packets/Packet.js';
 import { PlayerData } from './PlayerData.js';
 import { Logger } from '../util/Logger.js';
+import { dumpLocalPlayerStats } from '../util/StatDump.js';
 import { normalizeMapDisplayName } from '../util/mapDisplayName.js';
 
 /**
@@ -11,6 +12,48 @@ import { normalizeMapDisplayName } from '../util/mapDisplayName.js';
  */
 export class StateManager {
   private proxy: Proxy | null = null;
+  /** Returns the DLL's authoritative memory defense (null if unavailable / not alive). */
+  private dllDefenseSource: (() => number | null) | null = null;
+  private defenseCalibrated = false;
+
+  /** Wire in the DLL's memory defense so we can self-check the wire defense model on load. */
+  setDllDefenseSource(fn: () => number | null): void {
+    this.dllDefenseSource = fn;
+  }
+
+  /**
+   * One-time-per-load self-check: compares the wire-reconstructed defense against
+   * the DLL's authoritative memory defense to auto-determine whether DEFENSE_STAT(21)
+   * is already EFFECTIVE (so `pd.defense + pd.defenseBonus` double-counts) or BASE
+   * (so the add is correct). Logs the verdict and re-arms when the player dies /
+   * changes maps (DLL defense goes null). No-op until a DLL defense is available.
+   */
+  private checkDefenseCalibration(pd: PlayerData): void {
+    const dllDef = this.dllDefenseSource ? this.dllDefenseSource() : null;
+    if (dllDef === null) { this.defenseCalibrated = false; return; }  // re-arm for next load
+    if (this.defenseCalibrated) return;
+
+    const wireBase = pd.defense;
+    const wireSum = pd.defense + pd.defenseBonus;
+    const matchesBase = Math.abs(dllDef - wireBase) <= 1;
+    const matchesSum = Math.abs(dllDef - wireSum) <= 1;
+
+    if (matchesBase && matchesSum) {
+      // defenseBonus is 0 right now — can't disambiguate. Stay armed and retry with gear/exalt.
+      return;
+    }
+    this.defenseCalibrated = true;
+    if (matchesBase) {
+      Logger.log('DefenseCheck', `DEFENSE(21)=${wireBase} == DLL memory ${dllDef} → stat 21 is EFFECTIVE; `
+        + `'pd.defense + pd.defenseBonus' (${wireSum}) double-counts. AutoNexus already uses the memory value.`);
+    } else if (matchesSum) {
+      Logger.log('DefenseCheck', `DEFENSE(21)+DEFENSE_BOOST(49)=${wireSum} == DLL memory ${dllDef} → stat 21 is BASE; `
+        + `the bonus add is correct.`);
+    } else {
+      Logger.warn('DefenseCheck', `Neither wire base (${wireBase}) nor base+bonus (${wireSum}) == DLL memory ${dllDef} `
+        + `— stat-type drift or wrong memory field. Inspect with RE_STAT_DUMP=1.`);
+    }
+  }
 
   attach(proxy: Proxy): void {
     this.proxy = proxy;
@@ -74,6 +117,8 @@ export class StateManager {
         client.playerData.pos = { ...status.position };
         if (status.data) {
           client.playerData.parseStatus(status.data);
+          dumpLocalPlayerStats(status.data, 'UPDATE');
+          this.checkDefenseCalibration(client.playerData);
 
           // Account ID matching for state persistence across reconnects
           if (client.playerData.accountId && client.state) {
@@ -105,6 +150,8 @@ export class StateManager {
         // Update stats
         if (status.data) {
           client.playerData.parseStatus(status.data);
+          dumpLocalPlayerStats(status.data, 'NEWTICK');
+          this.checkDefenseCalibration(client.playerData);
         }
       }
     }

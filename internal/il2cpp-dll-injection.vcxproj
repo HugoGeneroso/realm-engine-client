@@ -53,6 +53,8 @@
     <ClCompile Include="src\features\movement\dodge\ChatToast.cpp" />
     <ClCompile Include="src\features\movement\dodge\XDodge.cpp" />
     <ClCompile Include="src\features\movement\dodge\DangerPlanner.cpp" />
+    <ClCompile Include="src\features\movement\dodge\RolloutDodge.cpp" />
+    <ClCompile Include="src\features\movement\dodge\GridThreatIndex.cpp" />
     <ClCompile Include="src\features\movement\dodge\MovementRuntime.cpp" />
     <ClCompile Include="src\features\movement\dodge\ProjectileCatalog.cpp" />
     <ClCompile Include="src\features\movement\dodge\SteerInput.cpp" />
@@ -178,6 +180,11 @@
     <ClInclude Include="src\features\movement\dodge\ChatToast.h" />
     <ClInclude Include="src\features\movement\dodge\XDodge.h" />
     <ClInclude Include="src\features\movement\dodge\DangerPlanner.h" />
+    <ClInclude Include="src\features\movement\dodge\RolloutDodge.h" />
+    <ClInclude Include="src\features\movement\dodge\ThreatIndex.h" />
+    <ClInclude Include="src\features\movement\dodge\GridThreatIndex.h" />
+    <ClInclude Include="src\features\movement\dodge\DodgeHit.h" />
+    <ClInclude Include="src\features\movement\dodge\DodgeSpeed.h" />
     <ClInclude Include="src\features\movement\dodge\DodgeGeometry.h" />
     <ClInclude Include="src\features\movement\dodge\MovementRuntime.h" />
     <ClInclude Include="src\features\movement\dodge\ProjectileCatalog.h" />

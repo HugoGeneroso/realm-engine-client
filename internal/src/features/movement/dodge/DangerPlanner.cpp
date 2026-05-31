@@ -2,6 +2,7 @@
 #include "DangerPlanner.h"
 #include "DodgeGeometry.h"
 #include "XDodge.h"
+#include "RolloutDodge.h"
 #include "DbgFileLog.h"
 #include "SteerInput.h"
 #include "GhostHit.h"
@@ -692,8 +693,12 @@ void __fastcall Detour_AppEngineUpdate(void* __this, void* method)
 {
     if (s_origUpdate) s_origUpdate(__this, method);
 
-    // XDodge runs from this hook exclusively — all other dodge modes removed.
-    if (XDodge::IsEnabled()) {
+    // Two dodge engines run from this hook (mutually exclusive): XDodge
+    // (spacetime BFS/A*) and RolloutDodge (forward input-simulation). They
+    // share the preamble, goal plumbing, and GhostHit safety net below.
+    const bool xdodgeOn  = XDodge::IsEnabled();
+    const bool rolloutOn = RolloutDodge::IsEnabled();
+    if (xdodgeOn || rolloutOn) {
         // Use GameState::GetLocalPtr() directly — the EXACT source AutoAim
         // uses (and AutoAim works). LocalPlayer::GetPtr() is a second-hand
         // mirror refreshed only by LocalPlayer::Tick() on the render thread
@@ -704,7 +709,7 @@ void __fastcall Detour_AppEngineUpdate(void* __this, void* method)
         if (!p) {
             static int s_pNullN = 0;
             if ((s_pNullN++ % 240) == 0)
-                DBG_FILE_LOG("[XDodge] Detour: GameState::GetLocalPtr() NULL "
+                DBG_FILE_LOG("[Dodge] Detour: GameState::GetLocalPtr() NULL "
                              "(attempt=" << s_pNullN << ") — not in a live world");
             return;
         }
@@ -715,19 +720,15 @@ void __fastcall Detour_AppEngineUpdate(void* __this, void* method)
         const uint8_t* lp = reinterpret_cast<const uint8_t*>(p);
         const float px = *reinterpret_cast<const float*>(lp + RuntimeOffsets::PosX);
         const float py = *reinterpret_cast<const float*>(lp + RuntimeOffsets::PosY);
-        // SteerInput manual-WASD-override gate REMOVED. This build drives
-        // movement entirely via XDodge (internal follow + dodge at all times)
-        // and injects no keys (auto-follow is IPC-only now). The gate was
-        // firing every frame the player ptr was valid — GetAsyncKeyState
-        // reporting "held" with no expected manual input — and was THE reason
-        // XDodge never ran. dll-trace.log confirmed: hook INSTALLED, ptr
-        // valid, but "gated OFF by SteerInput" on every such frame.
-        SteerInput::Tick();  // kept (cheap, maintains edge flag); no longer gates
-        ResolveEnemyLock(px, py);  // lock id → external goal (XDodge A* consumes)
-        XDodge::Tick(p, px, py, dt);
-        // GhostHit runs independently of XDodge — it's a SAFETY net that
-        // catches bullets the game's own per-tick collision skipped. Cheap
-        // when off (one atomic load), O(live-bullets) when on.
+        // SteerInput maintains the WASD release edge (cheap); it no longer
+        // gates. ResolveEnemyLock publishes the lock/auto-lock standoff as the
+        // shared external goal that both engines consume.
+        SteerInput::Tick();
+        ResolveEnemyLock(px, py);
+        if (rolloutOn) RolloutDodge::Tick(p, px, py, dt);
+        else           XDodge::Tick(p, px, py, dt);
+        // GhostHit runs independently — a SAFETY net for bullets the game's
+        // own per-tick collision skipped. Cheap when off (one atomic load).
         GhostHit::Tick(p, px, py);
         return;
     }

@@ -2,10 +2,11 @@ import type { PluginContext } from '../src/plugins/PluginContext.js';
 import { sendDllFeature } from '../src/bridge/DllFeatureBus.js';
 
 // Maps the dashboard string value to the C++ TestTAB::DodgeMode enum.
-// Off=0, XDodge=1. All other modes have been removed.
+// Off=0, XDodge=1, Rollout=2.
 // XDodge uses A* (goal-directed) with BFS fallback (immediate escape),
-// ported from XRebuild/XDriver decompile.
-const DODGE_VALUES = ['off', 'xdodge'] as const;
+// ported from XRebuild/XDriver decompile. Rollout (RE-Sim) does per-input
+// forward simulation against a uniform-grid broad-phase.
+const DODGE_VALUES = ['off', 'xdodge', 'rollout'] as const;
 
 function modeToIdx(v: string): number {
   const i = DODGE_VALUES.indexOf(v as (typeof DODGE_VALUES)[number]);
@@ -28,6 +29,7 @@ export function register(ctx: PluginContext) {
     options: [
       { label: 'Off', value: 'off' },
       { label: 'RE-Plus', value: 'xdodge' },
+      { label: 'RE-Sim', value: 'rollout' },
     ],
   }, () => flush());
 
@@ -190,6 +192,45 @@ export function register(ctx: PluginContext) {
   ctx.registerSetting('xdodgeDrawPath', onOff('Draw planned path on screen (debug)', 'off'),
     (v: string) => sendDllFeature('xdodgeDrawPath', v === 'on' ? 1 : 0));
 
+  // ── RE-Sim (Rollout) settings ─────────────────────────────────────────────
+  // Forward input-simulation dodge: per candidate heading, roll the player
+  // forward N ticks and CCD-test the swept path against predicted bullets,
+  // using a uniform-grid broad-phase. Active when Dodge mode = RE-Sim.
+  ctx.registerSetting('rolloutHorizonTicks', {
+    label: '[RE-Sim] Horizon (ticks)',
+    type: 'range', value: 4, min: 1, max: 8, step: 1,
+  }, (v: number) => sendDllFeature('rolloutHorizonTicks', v));
+  ctx.registerSetting('rolloutSampleStepMs', {
+    label: '[RE-Sim] Sample step (ms)', advanced: true,
+    type: 'range', value: 25, min: 10, max: 60, step: 5,
+  }, (v: number) => sendDllFeature('rolloutSampleStepMs', v));
+  ctx.registerSetting('rolloutHeadings', {
+    label: '[RE-Sim] Candidate headings',
+    type: 'range', value: 16, min: 8, max: 24, step: 1,
+  }, (v: number) => sendDllFeature('rolloutHeadings', v));
+  ctx.registerSetting('rolloutHitScale', {
+    label: '[RE-Sim] Hit scale', advanced: true,
+    type: 'range', value: 1.0, min: 0.5, max: 2.0, step: 0.05,
+  }, (v: number) => sendDllFeature('rolloutHitScale', v));
+  ctx.registerSetting('rolloutIntentWeight', {
+    label: '[RE-Sim] Intent weight (pull toward goal)',
+    type: 'range', value: 1.0, min: 0, max: 3.0, step: 0.1,
+  }, (v: number) => sendDllFeature('rolloutIntentWeight', v));
+  ctx.registerSetting('rolloutRebuildN', {
+    label: '[RE-Sim] Rebuild every N frames', advanced: true,
+    type: 'range', value: 2, min: 1, max: 10, step: 1,
+  }, (v: number) => sendDllFeature('rolloutRebuildN', v));
+  ctx.registerSetting('rolloutAvoidEnemies', onOff('[RE-Sim] Never stand on enemies / bosses'),
+    (v: string) => sendDllFeature('rolloutAvoidEnemies', v === 'on' ? 1 : 0));
+  ctx.registerSetting('rolloutWasdYield', onOff('[RE-Sim] Yield to manual WASD'),
+    (v: string) => sendDllFeature('rolloutWasdYield', v === 'on' ? 1 : 0));
+  ctx.registerSetting('rolloutCommitDwell', onOff('[RE-Sim] Commit dwell (no direction flip-flop)'),
+    (v: string) => sendDllFeature('rolloutCommitDwell', v === 'on' ? 1 : 0));
+  ctx.registerSetting('rolloutForceBrute', onOff('[RE-Sim] Force brute-force broad-phase (debug)', 'off'),
+    (v: string) => sendDllFeature('rolloutForceBrute', v === 'on' ? 1 : 0));
+  ctx.registerSetting('rolloutDrawPath', onOff('[RE-Sim] Draw candidate rollouts (debug)', 'off'),
+    (v: string) => sendDllFeature('rolloutDrawPath', v === 'on' ? 1 : 0));
+
   function syncModeSettings() {
     sendDllFeature('xdodgeHitScale',       ctx.getSetting<number>('xdodgeHitScale'));
     sendDllFeature('xdodgeRebuildN',       ctx.getSetting<number>('xdodgeRebuildN'));
@@ -207,6 +248,15 @@ export function register(ctx: PluginContext) {
     sendDllFeature('xdodgeCcdPad', ctx.getSetting<number>('xdodgeCcdPad'));
     const al = ctx.getSetting<string>('enemyAutoLock');
     sendDllFeature('xdodgeAutoLock', al === 'closest' ? 1 : al === 'aim' ? 2 : 0);
+    // RE-Sim (Rollout) settings.
+    sendDllFeature('rolloutHorizonTicks',  ctx.getSetting<number>('rolloutHorizonTicks'));
+    sendDllFeature('rolloutSampleStepMs',  ctx.getSetting<number>('rolloutSampleStepMs'));
+    sendDllFeature('rolloutHeadings',      ctx.getSetting<number>('rolloutHeadings'));
+    sendDllFeature('rolloutHitScale',      ctx.getSetting<number>('rolloutHitScale'));
+    sendDllFeature('rolloutIntentWeight',  ctx.getSetting<number>('rolloutIntentWeight'));
+    sendDllFeature('rolloutRebuildN',      ctx.getSetting<number>('rolloutRebuildN'));
+    for (const k of ['rolloutAvoidEnemies', 'rolloutWasdYield', 'rolloutCommitDwell', 'rolloutForceBrute', 'rolloutDrawPath'])
+      sendDllFeature(k, ctx.getSetting<string>(k) === 'on' ? 1 : 0);
     // Re-apply the 60fps cap here too. The onEnabledChange / clientConnected
     // handlers were the only places setting targetFrameRate, so if the cap
     // landed before the DLL was ready (or the player was already in-game

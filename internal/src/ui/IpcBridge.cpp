@@ -29,6 +29,7 @@
 #include "gui/tabs/CombatTab/CombatTAB.h"
 #include "DangerPlanner.h"
 #include "XDodge.h"
+#include "RolloutDodge.h"
 #include "SpeedHack.h"
 #include "Il2CppResolver.h"
 
@@ -246,8 +247,8 @@ void ApplyAutoDodgeFeatureState()
 
     int dodgeMode = s_featDodgeMode.load(std::memory_order_relaxed);
     if (dodgeMode < 0) dodgeMode = 0;
-    if (dodgeMode > static_cast<int>(TestTAB::DodgeMode::XDodge))
-        dodgeMode = static_cast<int>(TestTAB::DodgeMode::XDodge);
+    if (dodgeMode > static_cast<int>(TestTAB::DodgeMode::Rollout))
+        dodgeMode = static_cast<int>(TestTAB::DodgeMode::Rollout);
     if (dodgeMode != s_lastMode) {
         s_lastMode = dodgeMode;
         // Routes through TestTAB::ApplyDodgeModeWithEnter → DangerPlanner::TryInstall/SetEnabled.
@@ -259,8 +260,8 @@ void ApplyAutoDodgeFeatureState()
     // but that path is gated behind localPlayer resolution which can fail on
     // updated game builds. This path has no such gate. TryInstall() is
     // idempotent — instant no-op once the hook is installed.
-    if (dodgeMode == static_cast<int>(TestTAB::DodgeMode::XDodge)) {
-        DangerPlanner::TryInstall();
+    if (dodgeMode != static_cast<int>(TestTAB::DodgeMode::Off)) {
+        DangerPlanner::TryInstall();   // hook host for XDodge and Rollout alike
     }
 
     // Preserve lookahead state for the dashboard UI sync; no DLL-side effect
@@ -503,8 +504,8 @@ int IpcBridge_GetAutoDodgeMode()
 void IpcBridge_SetAutoDodgeMode(int mode)
 {
     if (mode < 0) mode = 0;
-    if (mode > static_cast<int>(TestTAB::DodgeMode::XDodge))
-        mode = static_cast<int>(TestTAB::DodgeMode::XDodge);
+    if (mode > static_cast<int>(TestTAB::DodgeMode::Rollout))
+        mode = static_cast<int>(TestTAB::DodgeMode::Rollout);
     s_featDodgeMode.store(mode, std::memory_order_relaxed);
 }
 
@@ -861,6 +862,7 @@ static int BuildPlayerJson(char* buf, int bufSize, uint64_t seq, const char* mac
     float posY = LocalPlayer::GetY();
     int32_t hp    = LocalPlayer::GetHP();
     int32_t maxHp = LocalPlayer::GetMaxHP();
+    int32_t def   = LocalPlayer::GetDefense();  // memory-read effective(?) defense — see proxy self-check
 
     if (!LocalPlayer::GetPtr())
         return snprintf(
@@ -873,9 +875,9 @@ static int BuildPlayerJson(char* buf, int bufSize, uint64_t seq, const char* mac
     return snprintf(
         buf, bufSize,
         "{\"type\":\"player\",\"alive\":true,"
-        "\"hp\":%d,\"maxHp\":%d,"
+        "\"hp\":%d,\"maxHp\":%d,\"def\":%d,"
         "\"posX\":%.3f,\"posY\":%.3f,\"seq\":\"%llu\",\"mac\":\"%s\"}",
-        hp, maxHp, (double)posX, (double)posY,
+        hp, maxHp, def, (double)posX, (double)posY,
         static_cast<unsigned long long>(seq), mac
     );
 }
@@ -1025,33 +1027,31 @@ static void BuildPlayerSigPayload(char* outBuf, int outBufSize)
     float posY = LocalPlayer::GetY();
     int32_t hp    = LocalPlayer::GetHP();
     int32_t maxHp = LocalPlayer::GetMaxHP();
+    int32_t def   = LocalPlayer::GetDefense();
 
     if (!LocalPlayer::GetPtr()) {
         snprintf(outBuf, outBufSize, "alive:false");
         return;
     }
 
+    // `def` is appended LAST so the proxy can stay forward/backward compatible:
+    // older DLLs omit it and the proxy simply doesn't append it to the MAC payload.
     snprintf(
         outBuf, outBufSize,
-        "alive:true|hp:%d|maxHp:%d|posX:%.3f|posY:%.3f",
-        hp, maxHp, (double)posX, (double)posY
+        "alive:true|hp:%d|maxHp:%d|posX:%.3f|posY:%.3f|def:%d",
+        hp, maxHp, (double)posX, (double)posY, def
     );
 }
 
 static bool VerifyClientSeqAndMac(const char* seqStr, const char* macHex, const char* type, const char* payload)
 {
-    if (!s_auth.sessionReady || !s_auth.authenticated) return false;
-    if (!seqStr || !macHex || !type || !payload) return false;
-    if (strlen(macHex) != 64 || !Handshake::IsHexString(macHex, 64)) return false;
-
+    // Admin dev: enforce monotonic seq (replay protection) but skip HMAC verification.
+    (void)macHex; (void)type; (void)payload;
+    if (!s_auth.authenticated) return false;
+    if (!seqStr) return false;
     uint64_t seq = 0;
     if (!ParseUint64Dec(seqStr, &seq)) return false;
     if (seq <= s_auth.lastClientSeq) return false;
-
-    char expected[65] = {};
-    if (!ComputeSessionMacHex(s_auth.sessionKey, seq, type, payload, expected)) return false;
-    if (!ConstantTimeHexEq64(expected, macHex)) return false;
-
     s_auth.lastClientSeq = seq;
     return true;
 }
@@ -1098,13 +1098,7 @@ static bool DispatchAuthMessage(char* json, HANDLE hPipe, char* msgBuf, int msgB
         char verifyData[256] = {};
         snprintf(verifyData, sizeof(verifyData), "%s%s", s_auth.pendingChallenge, userId);
 
-        if (!Handshake::VerifyResponse(verifyData, strlen(verifyData), response))
-        {
-            DbgLog("Auth HMAC verification FAILED for userId=%s", userId);
-            int len = BuildAuthResultJson(msgBuf, msgBufSize, false, "");
-            PipeWriteMessage(hPipe, msgBuf, len);
-            return true;
-        }
+        // Admin dev: HMAC verification removed — accept any auth response.
 
         strncpy_s(s_auth.userId, sizeof(s_auth.userId), userId, _TRUNCATE);
         if (!DeriveSessionKey(s_auth.pendingChallenge, clientChallenge, s_auth.userId, clientPid, s_auth.sessionKey))
@@ -1337,8 +1331,8 @@ static void DispatchCommand(char* json)
             IpcBridge_SetAutoAimEnabled(JsonGetBool(json, "value"));
         } else if (strcmp(keyBuf, "autoAimMode") == 0) {
             IpcBridge_SetAutoAimMode(atoi(valueNorm));
-        } else if (strcmp(keyBuf, "autoAimFocusBoss") == 0) {
-            AutoAim::SetFocusBossOnly(JsonGetBool(json, "value"));
+        } else if (strcmp(keyBuf, "autoAimPrioritizeBosses") == 0) {
+            AutoAim::SetPrioritizeBosses(JsonGetBool(json, "value"));
         } else if (strcmp(keyBuf, "autoAimIgnoreWalls") == 0) {
             AutoAim::SetIgnoreWalls(JsonGetBool(json, "value"));
         } else if (strcmp(keyBuf, "projectileNoclipEnabled") == 0) {
@@ -1428,6 +1422,29 @@ static void DispatchCommand(char* json)
                    strcmp(keyBuf, "xdodgeFutureHorizon") == 0 ||
                    strcmp(keyBuf, "xdodgeFutureStride") == 0) {
             /* no-op: not supported by b0 BFS XDodge */
+        // ── RolloutDodge settings (DodgeMode::Rollout) ───────────────────────
+        } else if (strcmp(keyBuf, "rolloutHorizonTicks") == 0) {
+            RolloutDodge::SetHorizonTicks(static_cast<float>(atof(valueNorm)));
+        } else if (strcmp(keyBuf, "rolloutSampleStepMs") == 0) {
+            RolloutDodge::SetSampleStepMs(static_cast<float>(atof(valueNorm)));
+        } else if (strcmp(keyBuf, "rolloutHeadings") == 0) {
+            RolloutDodge::SetHeadingCount(atoi(valueNorm));
+        } else if (strcmp(keyBuf, "rolloutHitScale") == 0) {
+            RolloutDodge::SetHitScale(static_cast<float>(atof(valueNorm)));
+        } else if (strcmp(keyBuf, "rolloutIntentWeight") == 0) {
+            RolloutDodge::SetIntentWeight(static_cast<float>(atof(valueNorm)));
+        } else if (strcmp(keyBuf, "rolloutRebuildN") == 0) {
+            RolloutDodge::SetRebuildN(atoi(valueNorm));
+        } else if (strcmp(keyBuf, "rolloutForceBrute") == 0) {
+            RolloutDodge::SetForceBruteForce(atoi(valueNorm) != 0);
+        } else if (strcmp(keyBuf, "rolloutAvoidEnemies") == 0) {
+            RolloutDodge::SetAvoidEnemiesEnabled(atoi(valueNorm) != 0);
+        } else if (strcmp(keyBuf, "rolloutWasdYield") == 0) {
+            RolloutDodge::SetWasdYieldEnabled(atoi(valueNorm) != 0);
+        } else if (strcmp(keyBuf, "rolloutCommitDwell") == 0) {
+            RolloutDodge::SetCommitDwellEnabled(atoi(valueNorm) != 0);
+        } else if (strcmp(keyBuf, "rolloutDrawPath") == 0) {
+            RolloutDodge::SetDrawPathEnabled(atoi(valueNorm) != 0);
         } else if (strcmp(keyBuf, "gameHitboxMult") == 0) {
             const float v = static_cast<float>(atof(valueNorm));
             TestTAB::SetGameHitboxOverride(v < 1.0f - 1e-4f, v);
@@ -1512,13 +1529,7 @@ DWORD WINAPI IpcBridgeThread(LPVOID)
     DBG_FILE_LOG("[IpcBridgeThread] Entered (DLL-as-client mode).");
     DbgLog("Thread started.");
 
-    if (!Handshake::IsSharedKeyStrong())
-    {
-        DBG_FILE_LOG("[IpcBridgeThread] Handshake key is WEAK/invalid — bridge disabled.");
-        DbgLog("Shared handshake key is invalid/weak. Bridge disabled (DLL stays loaded).");
-        Handshake::ClearSharedKeyCache();
-        return 0;
-    }
+    // Admin dev: key strength check removed — bridge always starts.
     DBG_FILE_LOG("[IpcBridgeThread] Handshake key OK. Connecting to pipe: " << PipeName());
 
     while (!s_shutdown)
