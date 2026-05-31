@@ -37,9 +37,10 @@ Vec2 ClosestPointOnSegment(Vec2 point, Vec2 a, Vec2 b)
 bool ThreatHitsPoint(const Threat& threat, Vec2 point, const Settings& settings)
 {
     const float half = threat.radius + settings.playerRadius + settings.clearanceTiles;
-    for (int i = 0; i < threat.sampleCount; ++i) {
+    const int n = std::min(threat.sampleCount, kMaxPathSamples);
+    for (int i = 0; i < n; ++i) {
         if (ChebDistance(point, threat.samples[i]) <= half) return true;
-        if (i + 1 < threat.sampleCount) {
+        if (i + 1 < n) {
             const Vec2 closest = ClosestPointOnSegment(point, threat.samples[i], threat.samples[i + 1]);
             if (ChebDistance(point, closest) <= half) return true;
         }
@@ -50,7 +51,7 @@ bool ThreatHitsPoint(const Threat& threat, Vec2 point, const Settings& settings)
 bool BlockerHitsPoint(const Blocker& blocker, Vec2 point, const Settings& settings)
 {
     const float r = blocker.radius + settings.playerRadius + settings.clearanceTiles;
-    return LenSq(Sub(point, blocker.pos)) <= r * r;
+    return ChebDistance(point, blocker.pos) <= r;
 }
 
 float ThreatClearance(Vec2 point, const Settings& settings, const SensorSnapshot& sensors)
@@ -59,7 +60,8 @@ float ThreatClearance(Vec2 point, const Settings& settings, const SensorSnapshot
     for (int i = 0; i < sensors.threatCount; ++i) {
         const Threat& threat = sensors.threats[i];
         const float half = threat.radius + settings.playerRadius;
-        for (int sample = 0; sample < threat.sampleCount; ++sample) {
+        const int n = std::min(threat.sampleCount, kMaxPathSamples);
+        for (int sample = 0; sample < n; ++sample) {
             best = std::min(best, ChebDistance(point, threat.samples[sample]) - half);
         }
     }
@@ -80,9 +82,9 @@ void AppendCandidateDebug(PlanResult& out, Vec2 pos, bool safe, CandidateRejectR
 
 bool IsPointSafe(const Vec2& point, const Settings& settings, const SensorSnapshot& sensors)
 {
-    for (int i = 0; i < sensors.blockerCount; ++i)
+    for (int i = 0; i < std::min(sensors.blockerCount, kMaxBlockers); ++i)
         if (BlockerHitsPoint(sensors.blockers[i], point, settings)) return false;
-    for (int i = 0; i < sensors.threatCount; ++i)
+    for (int i = 0; i < std::min(sensors.threatCount, kMaxThreats); ++i)
         if (ThreatHitsPoint(sensors.threats[i], point, settings)) return false;
     return true;
 }
@@ -101,7 +103,7 @@ bool IsSweepSafe(const Vec2& from, const Vec2& to, const Settings& settings, con
 Vec2 ComputeSlideDirection(const Vec2& desiredDir, const Vec2& player, const Settings& settings, const SensorSnapshot& sensors)
 {
     Vec2 adjusted = desiredDir;
-    for (int i = 0; i < sensors.blockerCount; ++i) {
+    for (int i = 0; i < std::min(sensors.blockerCount, kMaxBlockers); ++i) {
         const Blocker& blocker = sensors.blockers[i];
         const Vec2 away = Normalize(Sub(player, blocker.pos));
         const float inward = Dot(adjusted, Mul(away, -1.f));
