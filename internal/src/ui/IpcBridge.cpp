@@ -29,6 +29,7 @@
 #include "gui/tabs/CombatTab/CombatTAB.h"
 #include "DangerPlanner.h"
 #include "XDodge.h"
+#include "RolloutDodge.h"
 #include "SpeedHack.h"
 
 #include <cstdio>
@@ -235,8 +236,8 @@ void ApplyAutoDodgeFeatureState()
 
     int dodgeMode = s_featDodgeMode.load(std::memory_order_relaxed);
     if (dodgeMode < 0) dodgeMode = 0;
-    if (dodgeMode > static_cast<int>(TestTAB::DodgeMode::XDodge))
-        dodgeMode = static_cast<int>(TestTAB::DodgeMode::XDodge);
+    if (dodgeMode > static_cast<int>(TestTAB::DodgeMode::Rollout))
+        dodgeMode = static_cast<int>(TestTAB::DodgeMode::Rollout);
     if (dodgeMode != s_lastMode) {
         s_lastMode = dodgeMode;
         // Routes through TestTAB::ApplyDodgeModeWithEnter → DangerPlanner::TryInstall/SetEnabled.
@@ -248,8 +249,8 @@ void ApplyAutoDodgeFeatureState()
     // but that path is gated behind localPlayer resolution which can fail on
     // updated game builds. This path has no such gate. TryInstall() is
     // idempotent — instant no-op once the hook is installed.
-    if (dodgeMode == static_cast<int>(TestTAB::DodgeMode::XDodge)) {
-        DangerPlanner::TryInstall();
+    if (dodgeMode != static_cast<int>(TestTAB::DodgeMode::Off)) {
+        DangerPlanner::TryInstall();   // hook host for XDodge and Rollout alike
     }
 
     // Preserve lookahead state for the dashboard UI sync; no DLL-side effect
@@ -492,8 +493,8 @@ int IpcBridge_GetAutoDodgeMode()
 void IpcBridge_SetAutoDodgeMode(int mode)
 {
     if (mode < 0) mode = 0;
-    if (mode > static_cast<int>(TestTAB::DodgeMode::XDodge))
-        mode = static_cast<int>(TestTAB::DodgeMode::XDodge);
+    if (mode > static_cast<int>(TestTAB::DodgeMode::Rollout))
+        mode = static_cast<int>(TestTAB::DodgeMode::Rollout);
     s_featDodgeMode.store(mode, std::memory_order_relaxed);
 }
 
@@ -1355,6 +1356,29 @@ static void DispatchCommand(char* json)
                    strcmp(keyBuf, "xdodgeFutureHorizon") == 0 ||
                    strcmp(keyBuf, "xdodgeFutureStride") == 0) {
             /* no-op: not supported by b0 BFS XDodge */
+        // ── RolloutDodge settings (DodgeMode::Rollout) ───────────────────────
+        } else if (strcmp(keyBuf, "rolloutHorizonTicks") == 0) {
+            RolloutDodge::SetHorizonTicks(static_cast<float>(atof(valueNorm)));
+        } else if (strcmp(keyBuf, "rolloutSampleStepMs") == 0) {
+            RolloutDodge::SetSampleStepMs(static_cast<float>(atof(valueNorm)));
+        } else if (strcmp(keyBuf, "rolloutHeadings") == 0) {
+            RolloutDodge::SetHeadingCount(atoi(valueNorm));
+        } else if (strcmp(keyBuf, "rolloutHitScale") == 0) {
+            RolloutDodge::SetHitScale(static_cast<float>(atof(valueNorm)));
+        } else if (strcmp(keyBuf, "rolloutIntentWeight") == 0) {
+            RolloutDodge::SetIntentWeight(static_cast<float>(atof(valueNorm)));
+        } else if (strcmp(keyBuf, "rolloutRebuildN") == 0) {
+            RolloutDodge::SetRebuildN(atoi(valueNorm));
+        } else if (strcmp(keyBuf, "rolloutForceBrute") == 0) {
+            RolloutDodge::SetForceBruteForce(atoi(valueNorm) != 0);
+        } else if (strcmp(keyBuf, "rolloutAvoidEnemies") == 0) {
+            RolloutDodge::SetAvoidEnemiesEnabled(atoi(valueNorm) != 0);
+        } else if (strcmp(keyBuf, "rolloutWasdYield") == 0) {
+            RolloutDodge::SetWasdYieldEnabled(atoi(valueNorm) != 0);
+        } else if (strcmp(keyBuf, "rolloutCommitDwell") == 0) {
+            RolloutDodge::SetCommitDwellEnabled(atoi(valueNorm) != 0);
+        } else if (strcmp(keyBuf, "rolloutDrawPath") == 0) {
+            RolloutDodge::SetDrawPathEnabled(atoi(valueNorm) != 0);
         } else if (strcmp(keyBuf, "gameHitboxMult") == 0) {
             const float v = static_cast<float>(atof(valueNorm));
             TestTAB::SetGameHitboxOverride(v < 1.0f - 1e-4f, v);
