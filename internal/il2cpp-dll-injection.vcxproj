@@ -217,6 +217,8 @@
     <ClInclude Include="vendor\imgui\imstb_truetype.h" />
     <ClInclude Include="src\bootstrap\main.h" />
     <ClInclude Include="src\core\config\settings.h" />
+    <ClInclude Include="src\core\security\xorstr.h" />
+    <ClInclude Include="src\ui\xorstr.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <!--<VCProjectVersion>16.0</VCProjectVersion>-->
