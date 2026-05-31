@@ -33,6 +33,7 @@ bool        IpcBridge_IsAuthenticated();
 
 // Admin-controlled overlay gate.
 bool        IpcBridge_IsOverlayEnabled();
+void        IpcBridge_SetOverlayEnabled(bool on);
 
 // Unified feature state accessors.
 bool        IpcBridge_GetAutoAimEnabled();
