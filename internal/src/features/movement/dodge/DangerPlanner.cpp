@@ -724,7 +724,7 @@ void __fastcall Detour_AppEngineUpdate(void* __this, void* method)
         const float py = *reinterpret_cast<const float*>(lp + RuntimeOffsets::PosY);
         // SteerInput maintains the WASD release edge (cheap); it no longer
         // gates. ResolveEnemyLock publishes the lock/auto-lock standoff as the
-        // shared external goal that both engines consume.
+        // shared external goal that dodge engines can consume.
         SteerInput::Tick();
         ResolveEnemyLock(px, py);
         if (zaclinOn)       ZaclinDodge::Tick(p, px, py, dt);

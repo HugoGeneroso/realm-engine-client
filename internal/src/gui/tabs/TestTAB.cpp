@@ -1303,12 +1303,8 @@ namespace TestTAB {
     void      SetDodgeMode(DodgeMode m)
     {
         const int v = static_cast<int>(m);
-        g_dodgeMode = (v >= 0 && v <= static_cast<int>(DodgeMode::Zaclin))
-            ? m : DodgeMode::Off;
-        XDodge::SetEnabled(g_dodgeMode == DodgeMode::XDodge);
-        RolloutDodge::SetEnabled(g_dodgeMode == DodgeMode::Rollout);
-        ZaclinDodge::SetEnabled(g_dodgeMode == DodgeMode::Zaclin);
-        DangerPlanner::SetEnabled(false);
+        ApplyDodgeModeWithEnter((v >= 0 && v <= static_cast<int>(DodgeMode::Zaclin))
+            ? m : DodgeMode::Off);
     }
     // SetDodgeModeWithEnter — IpcBridge calls this to route a dashboard dodge-mode
     // change into the DLL. Routes through ApplyDodgeModeWithEnter so the planner
