@@ -128,15 +128,15 @@ export function register(ctx: PluginContext) {
   }, (v: number) => sendDllFeature('zaclinReactWindowMs', v));
   ctx.registerSetting('zaclinMaxMoveTiles', {
     label: '[Zaclin] Max assist distance (tiles)',
-    type: 'range', value: 1.25, min: 0.2, max: 4.0, step: 0.05,
+    type: 'range', value: 1.25, min: 0.2, max: 4, step: 0.05,
   }, (v: number) => sendDllFeature('zaclinMaxMoveTiles', v));
   ctx.registerSetting('zaclinPlayerRadius', {
     label: '[Zaclin] Player radius', advanced: true,
-    type: 'range', value: 0.25, min: 0.05, max: 1.0, step: 0.01,
+    type: 'range', value: 0.25, min: 0.05, max: 1, step: 0.01,
   }, (v: number) => sendDllFeature('zaclinPlayerRadius', v));
   ctx.registerSetting('zaclinProjectileRadiusFallback', {
     label: '[Zaclin] Projectile fallback radius', advanced: true,
-    type: 'range', value: 0.10, min: 0.02, max: 1.0, step: 0.01,
+    type: 'range', value: 0.1, min: 0.02, max: 1, step: 0.01,
   }, (v: number) => sendDllFeature('zaclinProjectileRadiusFallback', v));
   ctx.registerSetting('zaclinDamageThresholdPct', {
     label: '[Zaclin] Damage threshold pct', advanced: true,
