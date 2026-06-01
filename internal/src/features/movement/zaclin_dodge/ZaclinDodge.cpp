@@ -6,6 +6,7 @@
 #include "ZaclinDodgeSensors.h"
 
 #include "MovementRuntime.h"
+#include "ProjectileTracking.h"
 #include "SteerInput.h"
 #include "gui/tabs/TestTAB.h"
 
@@ -92,11 +93,16 @@ void ApplyDamageThreshold(SensorSnapshot& sensors, int32_t maxHp, float damageTh
 
 void SetEnabled(bool enabled)
 {
+    if (enabled) ProjectileTracking::Install();
     g_enabled.store(enabled, std::memory_order_relaxed);
     if (!enabled) PublishDebug(DebugSnapshot{});
 }
 bool IsEnabled() { return g_enabled.load(std::memory_order_relaxed); }
-void OnEnter() { PublishDebug(DebugSnapshot{}); }
+void OnEnter()
+{
+    ProjectileTracking::Install();
+    PublishDebug(DebugSnapshot{});
+}
 
 void Tick(void* player, float px, float py, float dt)
 {
@@ -123,6 +129,17 @@ void Tick(void* player, float px, float py, float dt)
     req.sensors = Sensors::Build(px, py, settings);
     ApplyDamageThreshold(req.sensors, maxHp, settings.damageThresholdPct);
 
+    if (req.sensors.projectileSourceUnavailable) {
+        DebugSnapshot debug{};
+        debug.status = FrameStatus::SensorLimited;
+        debug.player = req.player;
+        debug.intentDir = req.intentDir;
+        debug.intendedTarget = { px + req.intentDir.x * moveBudget, py + req.intentDir.y * moveBudget };
+        debug.sensors = req.sensors;
+        if (IsEnabled()) PublishDebug(debug);
+        return;
+    }
+
     const PlanResult plan = Planner::Evaluate(req);
 
     DebugSnapshot debug{};
@@ -134,6 +151,8 @@ void Tick(void* player, float px, float py, float dt)
     debug.selectedTarget = plan.target;
     debug.hasSelectedTarget = plan.shouldMove;
     debug.sensors = req.sensors;
+    if (plan.status == FrameStatus::NoThreats && (req.sensors.projectileLimited || req.sensors.blockerLimited))
+        debug.status = FrameStatus::SensorLimited;
     debug.candidateCount = std::min(plan.candidateCount, kMaxCandidates);
     for (int i = 0; i < debug.candidateCount; ++i) debug.candidates[i] = plan.candidates[i];
 

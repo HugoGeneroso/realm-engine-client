@@ -97,6 +97,11 @@ SensorSnapshot Build(float playerX, float playerY, const Settings& settings)
 {
     SensorSnapshot out{};
 
+    if (!ProjectileTracking::IsInstalled()) {
+        out.projectileSourceUnavailable = true;
+        return out;
+    }
+
     std::vector<WorldProjectile> projectiles;
     ProjectileTracking::CopyActiveForDraw(projectiles);
     const float cullSq = kThreatCullTiles * kThreatCullTiles;

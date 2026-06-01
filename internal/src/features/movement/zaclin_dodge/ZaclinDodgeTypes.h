@@ -68,6 +68,7 @@ struct SensorSnapshot {
     int threatCount = 0;
     Blocker blockers[kMaxBlockers]{};
     int blockerCount = 0;
+    bool projectileSourceUnavailable = false;
     bool projectileLimited = false;
     bool blockerLimited = false;
 };

@@ -186,7 +186,7 @@ PlanResult Evaluate(const PlanRequest& req)
         for (int i = 0; i < kCandidateDirections; ++i) {
             const float angle = kTwoPi * static_cast<float>(i) / static_cast<float>(kCandidateDirections);
             const Vec2 dir{ std::cos(angle), std::sin(angle) };
-            Vec2 candidate = Add(req.player, Mul(dir, std::min(radius, moveBudget)));
+            Vec2 candidate = Add(req.player, Mul(dir, radius));
             CandidateRejectReason reason = RejectReasonForPoint(candidate, req.settings, req.sensors);
             bool safe = reason == CandidateRejectReason::None;
             if (safe && !IsSweepSafe(req.player, candidate, req.settings, req.sensors)) {

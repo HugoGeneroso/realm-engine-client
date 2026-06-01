@@ -1148,6 +1148,11 @@ void Install()
     DBG_FILE_LOG("[ProjectileTracking] Install: spawn hook INSTALLED — bullets now captured");
 }
 
+bool IsInstalled()
+{
+    return g_Installed;
+}
+
 void Uninstall()
 {
     if (g_Installed) {

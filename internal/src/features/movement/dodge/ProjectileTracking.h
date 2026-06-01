@@ -11,6 +11,7 @@ namespace ProjectileTracking {
 
     void Install();
     void Uninstall();
+    bool IsInstalled();
 
     void SetLocalPlayerObjectId(int32_t objectId);
     int32_t GetLocalPlayerObjectId();
