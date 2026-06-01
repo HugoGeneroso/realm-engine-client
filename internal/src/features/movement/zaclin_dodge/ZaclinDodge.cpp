@@ -69,6 +69,7 @@ DebugSnapshot ReadDebugSnapshot()
 
 void PublishStatus(FrameStatus status)
 {
+    if (!IsEnabled()) return;
     DebugSnapshot snapshot{};
     snapshot.status = status;
     PublishDebug(snapshot);
