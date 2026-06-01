@@ -69,10 +69,8 @@ DebugSnapshot ReadDebugSnapshot()
 
 void PublishStatus(FrameStatus status)
 {
-    DebugSnapshot snapshot = ReadDebugSnapshot();
+    DebugSnapshot snapshot{};
     snapshot.status = status;
-    snapshot.hasSelectedTarget = false;
-    snapshot.candidateCount = 0;
     PublishDebug(snapshot);
 }
 
@@ -142,7 +140,7 @@ void Tick(void* player, float px, float py, float dt)
         if (!DodgeRuntime::CallMoveTo(player, plan.target.x, plan.target.y))
             debug.status = FrameStatus::MovementFailed;
     }
-    PublishDebug(debug);
+    if (IsEnabled()) PublishDebug(debug);
 }
 
 void RenderSettings()
@@ -165,7 +163,7 @@ void RenderSettings()
 
 void RenderDebugOverlay(float camX, float camY, float angle, float zoom, float cx, float cy)
 {
-    if (!GetDebugOverlay()) return;
+    if (!GetDebugOverlay() || !IsEnabled()) return;
     const DebugSnapshot snapshot = ReadDebugSnapshot();
     Debug::Render(snapshot, ReadSettings(), camX, camY, angle, zoom, cx, cy);
 }
