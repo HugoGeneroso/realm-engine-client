@@ -5,14 +5,19 @@
 
 #include <imgui/imgui.h>
 #include <algorithm>
+#include <cmath>
 
 namespace ZaclinDodge::Debug {
 namespace {
 
 bool ToScreen(Vec2 p, float camX, float camY, float angle, float zoom, float cx, float cy, ImVec2& out)
 {
+    if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(camX) || !std::isfinite(camY) ||
+        !std::isfinite(angle) || !std::isfinite(zoom) || !std::isfinite(cx) || !std::isfinite(cy) || zoom <= 0.f)
+        return false;
     float sx = 0.f, sy = 0.f;
     if (!W2S(p.x, p.y, sx, sy, camX, camY, angle, zoom, cx, cy)) return false;
+    if (!std::isfinite(sx) || !std::isfinite(sy)) return false;
     out = ImVec2(sx, sy);
     return true;
 }
@@ -51,6 +56,7 @@ const char* StatusName(FrameStatus status)
 void Render(const DebugSnapshot& snapshot, const Settings& settings, float camX, float camY, float angle, float zoom, float cx, float cy)
 {
     ImDrawList* draw = ImGui::GetBackgroundDrawList();
+    if (!draw) return;
     const ImU32 projectileColor = IM_COL32(255, 80, 80, 220);
     const ImU32 pathColor = IM_COL32(255, 180, 80, 160);
     const ImU32 enemyColor = IM_COL32(255, 60, 200, 210);
@@ -90,8 +96,10 @@ void Render(const DebugSnapshot& snapshot, const Settings& settings, float camX,
         }
     }
 
-    DrawLine(draw, snapshot.player, snapshot.intendedTarget, intentColor, camX, camY, angle, zoom, cx, cy, 2.f);
-    DrawLine(draw, snapshot.player, { snapshot.player.x + snapshot.slideDir.x, snapshot.player.y + snapshot.slideDir.y }, slideColor, camX, camY, angle, zoom, cx, cy, 2.f);
+    if (snapshot.status != FrameStatus::Disabled && snapshot.status != FrameStatus::NoPlayer) {
+        DrawLine(draw, snapshot.player, snapshot.intendedTarget, intentColor, camX, camY, angle, zoom, cx, cy, 2.f);
+        DrawLine(draw, snapshot.player, { snapshot.player.x + snapshot.slideDir.x, snapshot.player.y + snapshot.slideDir.y }, slideColor, camX, camY, angle, zoom, cx, cy, 2.f);
+    }
     if (snapshot.hasSelectedTarget) DrawCircle(draw, snapshot.selectedTarget, 7.f, targetColor, camX, camY, angle, zoom, cx, cy);
 
     ImVec2 playerScreen;
