@@ -2,16 +2,25 @@ import type { PluginContext } from '../src/plugins/PluginContext.js';
 import { sendDllFeature } from '../src/bridge/DllFeatureBus.js';
 
 // Maps the dashboard string value to the C++ TestTAB::DodgeMode enum.
-// Off=0, XDodge=1, Rollout=2, Zaclin=3.
+// Off=0, XDodge=1, Rollout=2, zDodge=3.
 // XDodge uses A* (goal-directed) with BFS fallback (immediate escape),
 // ported from XRebuild/XDriver decompile. Rollout (RE-Sim) does per-input
-// forward simulation against a uniform-grid broad-phase. Zaclin is an
+// forward simulation against a uniform-grid broad-phase. zDodge is an
 // intent-preserving slide-assist dodge.
-const DODGE_VALUES = ['off', 'xdodge', 'rollout', 'zaclin'] as const;
+const DODGE_VALUES = ['off', 'xdodge', 'rollout', 'zdodge'] as const;
+type ActiveDodgeMode = Exclude<(typeof DODGE_VALUES)[number], 'off'>;
+type SettingConfig = Parameters<PluginContext['registerSetting']>[1];
+type SettingCallback = Parameters<PluginContext['registerSetting']>[2];
 
 function modeToIdx(v: string): number {
   const i = DODGE_VALUES.indexOf(v as (typeof DODGE_VALUES)[number]);
-  return i < 0 ? 0 : i;
+  return Math.max(0, i);
+}
+
+function autoLockModeToIdx(v: string): number {
+  if (v === 'closest') return 1;
+  if (v === 'aim') return 2;
+  return 0;
 }
 
 export function register(ctx: PluginContext) {
@@ -23,15 +32,27 @@ export function register(ctx: PluginContext) {
     sendDllFeature('autoDodgeMode', mode);
   }
 
+  function registerModeSetting(
+    mode: ActiveDodgeMode,
+    key: string,
+    config: SettingConfig,
+    onChange?: SettingCallback,
+  ) {
+    ctx.registerSetting(key, {
+      ...config,
+      visibleWhen: { key: 'dodgeMode', value: mode },
+    }, onChange);
+  }
+
   ctx.registerSetting('dodgeMode', {
     label: 'Dodge mode',
     type: 'select',
-    value: 'xdodge',
+    value: 'zdodge',
     options: [
       { label: 'Off', value: 'off' },
       { label: 'RE-Plus', value: 'xdodge' },
       { label: 'RE-Sim', value: 'rollout' },
-      { label: 'Zaclin', value: 'zaclin' },
+      { label: 'zDodge', value: 'zdodge' },
     ],
   }, () => flush());
 
@@ -54,34 +75,34 @@ export function register(ctx: PluginContext) {
   }, () => applyDodgeFps(ctx.enabled));
 
   // ── RE-Plus settings ─────────────────────────────────────────────────────
-  ctx.registerSetting('xdodgeHitScale', {
+  registerModeSetting('xdodge', 'xdodgeHitScale', {
     label: '[RE-Plus] Hit scale', advanced: true,
-    type: 'range', value: 1.0, min: 0.5, max: 2.0, step: 0.05,
+    type: 'range', value: 1, min: 0.5, max: 2, step: 0.05,
   }, (v: number) => sendDllFeature('xdodgeHitScale', v));
 
-  ctx.registerSetting('xdodgeRebuildN', {
+  registerModeSetting('xdodge', 'xdodgeRebuildN', {
     label: '[RE-Plus] Rebuild every N frames', advanced: true,
     type: 'range', value: 3, min: 1, max: 10, step: 1,
   }, (v: number) => sendDllFeature('xdodgeRebuildN', v));
 
-  ctx.registerSetting('xdodgePlanStepMs', {
+  registerModeSetting('xdodge', 'xdodgePlanStepMs', {
     label: '[RE-Plus] Plan step (ms)', advanced: true,
     type: 'range', value: 50, min: 10, max: 200, step: 5,
   }, (v: number) => sendDllFeature('xdodgePlanStepMs', v));
 
   // ── A* pathfinder settings ────────────────────────────────────────────────
-  ctx.registerSetting('xdodgeDangerPenalty', {
+  registerModeSetting('xdodge', 'xdodgeDangerPenalty', {
     label: 'Danger sensitivity (lower = tighter / threads closer)',
-    type: 'range', value: 2.0, min: 0, max: 5.0, step: 0.1,
+    type: 'range', value: 2, min: 0, max: 5, step: 0.1,
   }, (v: number) => sendDllFeature('xdodgeDangerPenalty', v));
 
-  ctx.registerSetting('xdodgeStayPenalty', {
+  registerModeSetting('xdodge', 'xdodgeStayPenalty', {
     label: 'Stay-in-place cost (inert — kept for protocol sync)', advanced: true,
-    type: 'range', value: 0.5, min: 0, max: 2.0, step: 0.05,
+    type: 'range', value: 0.5, min: 0, max: 2, step: 0.05,
   }, (v: number) => sendDllFeature('xdodgeStayPenalty', v));
 
   // ── Future-sample look-ahead (XDriver IsSafeCandidateStrong) ──────────────
-  ctx.registerSetting('xdodgeFutureSample', {
+  registerModeSetting('xdodge', 'xdodgeFutureSample', {
     label: '[Future] Extended look-ahead',
     advanced: true,
     type: 'select',
@@ -92,26 +113,21 @@ export function register(ctx: PluginContext) {
     ],
   }, (v: string) => sendDllFeature('xdodgeFutureSample', v === 'on' ? 1 : 0));
 
-  ctx.registerSetting('xdodgeFutureHorizon', {
+  registerModeSetting('xdodge', 'xdodgeFutureHorizon', {
     label: '[Future] Horizon (ms)', advanced: true,
     type: 'range', value: 2500, min: 500, max: 5000, step: 100,
   }, (v: number) => sendDllFeature('xdodgeFutureHorizon', v));
 
-  ctx.registerSetting('xdodgeFutureStride', {
+  registerModeSetting('xdodge', 'xdodgeFutureStride', {
     label: '[Future] Sample stride (ms)', advanced: true,
     type: 'range', value: 50, min: 8, max: 200, step: 2,
   }, (v: number) => sendDllFeature('xdodgeFutureStride', v));
 
   // ── Hitbox settings ────────────────────────────────────────────────────────
-  ctx.registerSetting('dodgeHitScale', {
+  registerModeSetting('xdodge', 'dodgeHitScale', {
     label: 'Dodge hitbox scale', advanced: true,
-    type: 'range', value: 1.0, min: 0.5, max: 2.0, step: 0.05,
+    type: 'range', value: 1, min: 0.5, max: 2, step: 0.05,
   }, (v: number) => sendDllFeature('dodgeHitScale', v));
-
-  ctx.registerSetting('gameHitboxMult', {
-    label: 'Game hitbox override', advanced: true,
-    type: 'range', value: 1.0, min: 0, max: 1.0, step: 0.01,
-  }, (v: number) => sendDllFeature('gameHitboxMult', v));
 
   // ── Weighted-field + A* goal tier (additive over the immediate BFS) ───────
   // All four are independent. With every one 'off' the dodge is the exact
@@ -121,43 +137,75 @@ export function register(ctx: PluginContext) {
     options: [{ label: 'On', value: 'on' }, { label: 'Off', value: 'off' }],
   });
 
-  // ── Zaclin settings ───────────────────────────────────────────────────────
-  ctx.registerSetting('zaclinReactWindowMs', {
-    label: '[Zaclin] React window (ms)',
-    type: 'range', value: 650, min: 100, max: 2500, step: 25,
-  }, (v: number) => sendDllFeature('zaclinReactWindowMs', v));
-  ctx.registerSetting('zaclinMaxMoveTiles', {
-    label: '[Zaclin] Max assist distance (tiles)',
-    type: 'range', value: 1.25, min: 0.2, max: 4, step: 0.05,
-  }, (v: number) => sendDllFeature('zaclinMaxMoveTiles', v));
-  ctx.registerSetting('zaclinPlayerRadius', {
-    label: '[Zaclin] Player radius', advanced: true,
-    type: 'range', value: 0.25, min: 0.05, max: 1, step: 0.01,
-  }, (v: number) => sendDllFeature('zaclinPlayerRadius', v));
-  ctx.registerSetting('zaclinProjectileRadiusFallback', {
-    label: '[Zaclin] Projectile fallback radius', advanced: true,
-    type: 'range', value: 0.1, min: 0.02, max: 1, step: 0.01,
-  }, (v: number) => sendDllFeature('zaclinProjectileRadiusFallback', v));
-  ctx.registerSetting('zaclinDamageThresholdPct', {
-    label: '[Zaclin] Damage threshold pct', advanced: true,
+  // ── zDodge settings ───────────────────────────────────────────────────────
+  registerModeSetting('zdodge', 'zdodgeReactWindowMs', {
+    label: '[zDodge] React window (ms)',
+    type: 'range', value: 1200, min: 100, max: 2500, step: 25,
+  }, (v: number) => sendDllFeature('zdodgeReactWindowMs', v));
+  registerModeSetting('zdodge', 'zdodgeMaxMoveTiles', {
+    label: '[zDodge] Max assist distance (tiles)',
+    type: 'range', value: 0.55, min: 0.2, max: 4, step: 0.05,
+  }, (v: number) => sendDllFeature('zdodgeMaxMoveTiles', v));
+  registerModeSetting('zdodge', 'zdodgePlayerRadius', {
+    label: '[zDodge] Player radius', advanced: true,
+    type: 'range', value: 0.05, min: 0, max: 1, step: 0.01,
+  }, (v: number) => sendDllFeature('zdodgePlayerRadius', v));
+  registerModeSetting('zdodge', 'zdodgeProjectileHitScale', {
+    label: '[zDodge] Projectile hit scale', advanced: true,
+    type: 'range', value: 0.9, min: 0, max: 3, step: 0.05,
+  }, (v: number) => sendDllFeature('zdodgeProjectileHitScale', v));
+  registerModeSetting('zdodge', 'zdodgeProjectileRadiusFallback', {
+    label: '[zDodge] Projectile fallback radius', advanced: true,
+    type: 'range', value: 0.02, min: 0, max: 1, step: 0.01,
+  }, (v: number) => sendDllFeature('zdodgeProjectileRadiusFallback', v));
+  registerModeSetting('zdodge', 'zdodgeClearanceTiles', {
+    label: '[zDodge] Clearance tiles', advanced: true,
+    type: 'range', value: 0.03, min: 0, max: 1, step: 0.01,
+  }, (v: number) => sendDllFeature('zdodgeClearanceTiles', v));
+  registerModeSetting('zdodge', 'zdodgeSampleStepMs', {
+    label: '[zDodge] Sample step (ms)', advanced: true,
+    type: 'range', value: 40, min: 8, max: 100, step: 1,
+  }, (v: number) => sendDllFeature('zdodgeSampleStepMs', v));
+  registerModeSetting('zdodge', 'zdodgePerpWeight', {
+    label: '[zDodge] Perpendicular weight', advanced: true,
+    type: 'range', value: 6, min: 0, max: 10, step: 0.1,
+  }, (v: number) => sendDllFeature('zdodgePerpWeight', v));
+  registerModeSetting('zdodge', 'zdodgeIntentWeight', {
+    label: '[zDodge] Intent weight', advanced: true,
+    type: 'range', value: 2.5, min: 0, max: 10, step: 0.1,
+  }, (v: number) => sendDllFeature('zdodgeIntentWeight', v));
+  registerModeSetting('zdodge', 'zdodgeClearanceWeight', {
+    label: '[zDodge] Clearance weight', advanced: true,
+    type: 'range', value: 1.5, min: 0, max: 5, step: 0.1,
+  }, (v: number) => sendDllFeature('zdodgeClearanceWeight', v));
+  registerModeSetting('zdodge', 'zdodgeBackpedalPenalty', {
+    label: '[zDodge] Backpedal penalty', advanced: true,
+    type: 'range', value: 3, min: 0, max: 10, step: 0.1,
+  }, (v: number) => sendDllFeature('zdodgeBackpedalPenalty', v));
+  registerModeSetting('zdodge', 'zdodgeEnemyAvoidanceRadius', {
+    label: '[zDodge] Enemy no-go radius', advanced: true,
+    type: 'range', value: 2, min: 0, max: 3, step: 0.05,
+  }, (v: number) => sendDllFeature('zdodgeEnemyAvoidanceRadius', v));
+  registerModeSetting('zdodge', 'zdodgeDamageThresholdPct', {
+    label: '[zDodge] Damage threshold pct', advanced: true,
     type: 'range', value: 0, min: 0, max: 1, step: 0.01,
-  }, (v: number) => sendDllFeature('zaclinDamageThresholdPct', v));
-  ctx.registerSetting('zaclinDebugOverlay', onOff('[Zaclin] Debug overlay', 'off'),
-    (v: string) => sendDllFeature('zaclinDebugOverlay', v === 'on' ? 1 : 0));
-  ctx.registerSetting('zaclinCandidateOverlay', onOff('[Zaclin] Candidate points', 'on'),
-    (v: string) => sendDllFeature('zaclinCandidateOverlay', v === 'on' ? 1 : 0));
+  }, (v: number) => sendDllFeature('zdodgeDamageThresholdPct', v));
+  registerModeSetting('zdodge', 'zdodgeDebugOverlay', onOff('[zDodge] Debug overlay', 'on'),
+    (v: string) => sendDllFeature('zdodgeDebugOverlay', v === 'on' ? 1 : 0));
+  registerModeSetting('zdodge', 'zdodgeCandidateOverlay', onOff('[zDodge] Candidate points', 'on'),
+    (v: string) => sendDllFeature('zdodgeCandidateOverlay', v === 'on' ? 1 : 0));
 
-  ctx.registerSetting('xdodgeAstar', onOff('[Goal] Smart goal pathing'),
+  registerModeSetting('xdodge', 'xdodgeAstar', onOff('[Goal] Smart goal pathing'),
     (v: string) => sendDllFeature('xdodgeAstar', v === 'on' ? 1 : 0));
-  ctx.registerSetting('xdodgeWeighting', onOff('[Goal] Weighted danger field'),
+  registerModeSetting('xdodge', 'xdodgeWeighting', onOff('[Goal] Weighted danger field'),
     (v: string) => sendDllFeature('xdodgeWeighting', v === 'on' ? 1 : 0));
-  ctx.registerSetting('xdodgeSmartGoal', onOff('[Goal] Smart goal position'),
+  registerModeSetting('xdodge', 'xdodgeSmartGoal', onOff('[Goal] Smart goal position'),
     (v: string) => sendDllFeature('xdodgeSmartGoal', v === 'on' ? 1 : 0));
-  ctx.registerSetting('xdodgePerpBias', onOff('[Goal] Perpendicular sidestep bias'),
+  registerModeSetting('xdodge', 'xdodgePerpBias', onOff('[Goal] Perpendicular sidestep bias'),
     (v: string) => sendDllFeature('xdodgePerpBias', v === 'on' ? 1 : 0));
-  ctx.registerSetting('xdodgeSpeedMatch', onOff('Speed match (anti rubber-band)'),
+  registerModeSetting('xdodge', 'xdodgeSpeedMatch', onOff('Speed match (anti rubber-band)'),
     (v: string) => sendDllFeature('xdodgeSpeedMatch', v === 'on' ? 1 : 0));
-  ctx.registerSetting('xdodgeLockFollow', onOff('Lock-follow (Shift+Click enemy to track)'),
+  registerModeSetting('xdodge', 'xdodgeLockFollow', onOff('Lock-follow (Shift+Click enemy to track)'),
     (v: string) => sendDllFeature('xdodgeLockFollow', v === 'on' ? 1 : 0));
 
   // Auto enemy lock — picks a target automatically when no manual
@@ -166,7 +214,7 @@ export function register(ctx: PluginContext) {
   // 0 = off, 1 = closest enemy, 2 = whatever auto-aim is targeting (so
   // Highest-HP / Closest-to-Mouse are delegated to the auto-aim plugin's
   // own mode).
-  ctx.registerSetting('enemyAutoLock', {
+  registerModeSetting('xdodge', 'enemyAutoLock', {
     label: 'Auto enemy lock',
     type: 'select',
     value: 'off',
@@ -177,19 +225,19 @@ export function register(ctx: PluginContext) {
     ],
   }, (v: string) => sendDllFeature(
     'xdodgeAutoLock',
-    v === 'closest' ? 1 : v === 'aim' ? 2 : 0
+    autoLockModeToIdx(v)
   ));
-  ctx.registerSetting('xdodgeWalkCache', onOff('Walkability cache (perf / AutoNexus)'),
+  registerModeSetting('xdodge', 'xdodgeWalkCache', onOff('Walkability cache (perf / AutoNexus)'),
     (v: string) => sendDllFeature('xdodgeWalkCache', v === 'on' ? 1 : 0));
-  ctx.registerSetting('xdodgeWallAvoid', onOff('[Goal] Wall avoidance (clearance + corner-clip)'),
+  registerModeSetting('xdodge', 'xdodgeWallAvoid', onOff('[Goal] Wall avoidance (clearance + corner-clip)'),
     (v: string) => sendDllFeature('xdodgeWallAvoid', v === 'on' ? 1 : 0));
-  ctx.registerSetting('xdodgeArbiter', onOff('[Goal] Orbit↔Survive arbiter (flee when area untenable)'),
+  registerModeSetting('xdodge', 'xdodgeArbiter', onOff('[Goal] Orbit↔Survive arbiter (flee when area untenable)'),
     (v: string) => sendDllFeature('xdodgeArbiter', v === 'on' ? 1 : 0));
-  ctx.registerSetting('xdodgeBfsBias', onOff('Strategic escape bias (head toward goal)'),
+  registerModeSetting('xdodge', 'xdodgeBfsBias', onOff('Strategic escape bias (head toward goal)'),
     (v: string) => sendDllFeature('xdodgeBfsBias', v === 'on' ? 1 : 0));
-  ctx.registerSetting('xdodgeCcd', onOff('CCD-exact tight reflex (razor-tight)'),
+  registerModeSetting('xdodge', 'xdodgeCcd', onOff('CCD-exact tight reflex (razor-tight)'),
     (v: string) => sendDllFeature('xdodgeCcd', v === 'on' ? 1 : 0));
-  ctx.registerSetting('xdodgeCcdPad', {
+  registerModeSetting('xdodge', 'xdodgeCcdPad', {
     label: 'CCD pad (tiles — command-latency margin)', advanced: true,
     type: 'range', value: 0.03, min: 0, max: 0.5, step: 0.01,
   }, (v: number) => sendDllFeature('xdodgeCcdPad', v));
@@ -197,13 +245,13 @@ export function register(ctx: PluginContext) {
   // apply is now hard-zeroed in the DLL (it was making the dodge refuse
   // tight gaps after a session), so toggling this only controls whether
   // the catalog still records observations — there's no movement effect.
-  ctx.registerSetting('xdodgeCatalog', onOff('Per-type bullet learning (inert — no longer inflates hitbox)', 'off'),
+  registerModeSetting('xdodge', 'xdodgeCatalog', onOff('Per-type bullet learning (inert — no longer inflates hitbox)', 'off'),
     (v: string) => sendDllFeature('xdodgeCatalog', v === 'on' ? 1 : 0));
-  ctx.registerSetting('xdodgeLosGoal', onOff('[Lock] Keep line-of-sight to enemy'),
+  registerModeSetting('xdodge', 'xdodgeLosGoal', onOff('[Lock] Keep line-of-sight to enemy'),
     (v: string) => sendDllFeature('xdodgeLosGoal', v === 'on' ? 1 : 0));
-  ctx.registerSetting('xdodgeWasdYield', onOff('Yield to manual WASD (no fighting your input)'),
+  registerModeSetting('xdodge', 'xdodgeWasdYield', onOff('Yield to manual WASD (no fighting your input)'),
     (v: string) => sendDllFeature('xdodgeWasdYield', v === 'on' ? 1 : 0));
-  ctx.registerSetting('xdodgeAvoidEnemies', onOff('Never stand on enemies / bosses (avoid contact damage)'),
+  registerModeSetting('xdodge', 'xdodgeAvoidEnemies', onOff('Never stand on enemies / bosses (avoid contact damage)'),
     (v: string) => sendDllFeature('xdodgeAvoidEnemies', v === 'on' ? 1 : 0));
   // Ghost-hit protection: an independent swept-collision check in the DLL
   // catches bullets the game's per-tick collision skipped (the cause of
@@ -211,52 +259,52 @@ export function register(ctx: PluginContext) {
   // packet so AutoNexus reacts before HP drops past threshold. On by
   // default — ghost-hit deaths outweigh the theoretical detectability of
   // the synthetic packets we emit; users can disable per-server if needed.
-  ctx.registerSetting('xdodgeGhostHit', onOff('Ghost-hit protection (sync hits the game missed)'),
+  registerModeSetting('xdodge', 'xdodgeGhostHit', onOff('Ghost-hit protection (sync hits the game missed)'),
     (v: string) => sendDllFeature('xdodgeGhostHit', v === 'on' ? 1 : 0));
-  ctx.registerSetting('xdodgeLateralPref', onOff('[Goal] Anti-flee + sidestep bias (no backwards sprinting)'),
+  registerModeSetting('xdodge', 'xdodgeLateralPref', onOff('[Goal] Anti-flee + sidestep bias (no backwards sprinting)'),
     (v: string) => sendDllFeature('xdodgeLateralPref', v === 'on' ? 1 : 0));
-  ctx.registerSetting('xdodgeGoalSticky', onOff('[Goal] Path stickiness (no flipping between equal paths)'),
+  registerModeSetting('xdodge', 'xdodgeGoalSticky', onOff('[Goal] Path stickiness (no flipping between equal paths)'),
     (v: string) => sendDllFeature('xdodgeGoalSticky', v === 'on' ? 1 : 0));
-  ctx.registerSetting('xdodgeDrawPath', onOff('Draw planned path on screen (debug)', 'off'),
+  registerModeSetting('xdodge', 'xdodgeDrawPath', onOff('Draw planned path on screen (debug)', 'off'),
     (v: string) => sendDllFeature('xdodgeDrawPath', v === 'on' ? 1 : 0));
 
   // ── RE-Sim (Rollout) settings ─────────────────────────────────────────────
   // Forward input-simulation dodge: per candidate heading, roll the player
   // forward N ticks and CCD-test the swept path against predicted bullets,
   // using a uniform-grid broad-phase. Active when Dodge mode = RE-Sim.
-  ctx.registerSetting('rolloutHorizonTicks', {
+  registerModeSetting('rollout', 'rolloutHorizonTicks', {
     label: '[RE-Sim] Horizon (ticks)',
     type: 'range', value: 4, min: 1, max: 8, step: 1,
   }, (v: number) => sendDllFeature('rolloutHorizonTicks', v));
-  ctx.registerSetting('rolloutSampleStepMs', {
+  registerModeSetting('rollout', 'rolloutSampleStepMs', {
     label: '[RE-Sim] Sample step (ms)', advanced: true,
     type: 'range', value: 25, min: 10, max: 60, step: 5,
   }, (v: number) => sendDllFeature('rolloutSampleStepMs', v));
-  ctx.registerSetting('rolloutHeadings', {
+  registerModeSetting('rollout', 'rolloutHeadings', {
     label: '[RE-Sim] Candidate headings',
     type: 'range', value: 16, min: 8, max: 24, step: 1,
   }, (v: number) => sendDllFeature('rolloutHeadings', v));
-  ctx.registerSetting('rolloutHitScale', {
+  registerModeSetting('rollout', 'rolloutHitScale', {
     label: '[RE-Sim] Hit scale', advanced: true,
-    type: 'range', value: 1.0, min: 0.5, max: 2.0, step: 0.05,
+    type: 'range', value: 1, min: 0.5, max: 2, step: 0.05,
   }, (v: number) => sendDllFeature('rolloutHitScale', v));
-  ctx.registerSetting('rolloutIntentWeight', {
+  registerModeSetting('rollout', 'rolloutIntentWeight', {
     label: '[RE-Sim] Intent weight (pull toward goal)',
-    type: 'range', value: 1.0, min: 0, max: 3.0, step: 0.1,
+    type: 'range', value: 1, min: 0, max: 3, step: 0.1,
   }, (v: number) => sendDllFeature('rolloutIntentWeight', v));
-  ctx.registerSetting('rolloutRebuildN', {
+  registerModeSetting('rollout', 'rolloutRebuildN', {
     label: '[RE-Sim] Rebuild every N frames', advanced: true,
     type: 'range', value: 2, min: 1, max: 10, step: 1,
   }, (v: number) => sendDllFeature('rolloutRebuildN', v));
-  ctx.registerSetting('rolloutAvoidEnemies', onOff('[RE-Sim] Never stand on enemies / bosses'),
+  registerModeSetting('rollout', 'rolloutAvoidEnemies', onOff('[RE-Sim] Never stand on enemies / bosses'),
     (v: string) => sendDllFeature('rolloutAvoidEnemies', v === 'on' ? 1 : 0));
-  ctx.registerSetting('rolloutWasdYield', onOff('[RE-Sim] Yield to manual WASD'),
+  registerModeSetting('rollout', 'rolloutWasdYield', onOff('[RE-Sim] Yield to manual WASD'),
     (v: string) => sendDllFeature('rolloutWasdYield', v === 'on' ? 1 : 0));
-  ctx.registerSetting('rolloutCommitDwell', onOff('[RE-Sim] Commit dwell (no direction flip-flop)'),
+  registerModeSetting('rollout', 'rolloutCommitDwell', onOff('[RE-Sim] Commit dwell (no direction flip-flop)'),
     (v: string) => sendDllFeature('rolloutCommitDwell', v === 'on' ? 1 : 0));
-  ctx.registerSetting('rolloutForceBrute', onOff('[RE-Sim] Force brute-force broad-phase (debug)', 'off'),
+  registerModeSetting('rollout', 'rolloutForceBrute', onOff('[RE-Sim] Force brute-force broad-phase (debug)', 'off'),
     (v: string) => sendDllFeature('rolloutForceBrute', v === 'on' ? 1 : 0));
-  ctx.registerSetting('rolloutDrawPath', onOff('[RE-Sim] Draw candidate rollouts (debug)', 'off'),
+  registerModeSetting('rollout', 'rolloutDrawPath', onOff('[RE-Sim] Draw candidate rollouts (debug)', 'off'),
     (v: string) => sendDllFeature('rolloutDrawPath', v === 'on' ? 1 : 0));
 
   function syncModeSettings() {
@@ -270,12 +318,11 @@ export function register(ctx: PluginContext) {
     sendDllFeature('xdodgeFutureHorizon',  ctx.getSetting<number>('xdodgeFutureHorizon'));
     sendDllFeature('xdodgeFutureStride',   ctx.getSetting<number>('xdodgeFutureStride'));
     sendDllFeature('dodgeHitScale',        ctx.getSetting<number>('dodgeHitScale'));
-    sendDllFeature('gameHitboxMult',       ctx.getSetting<number>('gameHitboxMult'));
     for (const k of ['xdodgeAstar', 'xdodgeWeighting', 'xdodgeSmartGoal', 'xdodgePerpBias', 'xdodgeSpeedMatch', 'xdodgeLockFollow', 'xdodgeWalkCache', 'xdodgeWallAvoid', 'xdodgeArbiter', 'xdodgeBfsBias', 'xdodgeCcd', 'xdodgeCatalog', 'xdodgeLosGoal', 'xdodgeWasdYield', 'xdodgeLateralPref', 'xdodgeGoalSticky', 'xdodgeAvoidEnemies', 'xdodgeGhostHit', 'xdodgeDrawPath'])
       sendDllFeature(k, ctx.getSetting<string>(k) === 'on' ? 1 : 0);
     sendDllFeature('xdodgeCcdPad', ctx.getSetting<number>('xdodgeCcdPad'));
     const al = ctx.getSetting<string>('enemyAutoLock');
-    sendDllFeature('xdodgeAutoLock', al === 'closest' ? 1 : al === 'aim' ? 2 : 0);
+    sendDllFeature('xdodgeAutoLock', autoLockModeToIdx(al));
     // RE-Sim (Rollout) settings.
     sendDllFeature('rolloutHorizonTicks',  ctx.getSetting<number>('rolloutHorizonTicks'));
     sendDllFeature('rolloutSampleStepMs',  ctx.getSetting<number>('rolloutSampleStepMs'));
@@ -285,13 +332,13 @@ export function register(ctx: PluginContext) {
     sendDllFeature('rolloutRebuildN',      ctx.getSetting<number>('rolloutRebuildN'));
     for (const k of ['rolloutAvoidEnemies', 'rolloutWasdYield', 'rolloutCommitDwell', 'rolloutForceBrute', 'rolloutDrawPath'])
       sendDllFeature(k, ctx.getSetting<string>(k) === 'on' ? 1 : 0);
-    // Zaclin settings.
-    sendDllFeature('zaclinReactWindowMs', ctx.getSetting<number>('zaclinReactWindowMs'));
-    sendDllFeature('zaclinMaxMoveTiles', ctx.getSetting<number>('zaclinMaxMoveTiles'));
-    sendDllFeature('zaclinPlayerRadius', ctx.getSetting<number>('zaclinPlayerRadius'));
-    sendDllFeature('zaclinProjectileRadiusFallback', ctx.getSetting<number>('zaclinProjectileRadiusFallback'));
-    sendDllFeature('zaclinDamageThresholdPct', ctx.getSetting<number>('zaclinDamageThresholdPct'));
-    for (const k of ['zaclinDebugOverlay', 'zaclinCandidateOverlay'])
+    // zDodge settings.
+    sendDllFeature('zdodgeReactWindowMs', ctx.getSetting<number>('zdodgeReactWindowMs'));
+    sendDllFeature('zdodgeMaxMoveTiles', ctx.getSetting<number>('zdodgeMaxMoveTiles'));
+    sendDllFeature('zdodgePlayerRadius', ctx.getSetting<number>('zdodgePlayerRadius'));
+    sendDllFeature('zdodgeProjectileRadiusFallback', ctx.getSetting<number>('zdodgeProjectileRadiusFallback'));
+    sendDllFeature('zdodgeDamageThresholdPct', ctx.getSetting<number>('zdodgeDamageThresholdPct'));
+    for (const k of ['zdodgeDebugOverlay', 'zdodgeCandidateOverlay'])
       sendDllFeature(k, ctx.getSetting<string>(k) === 'on' ? 1 : 0);
     // Re-apply the 60fps cap here too. The onEnabledChange / clientConnected
     // handlers were the only places setting targetFrameRate, so if the cap

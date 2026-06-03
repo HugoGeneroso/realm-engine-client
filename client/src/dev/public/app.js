@@ -9214,6 +9214,28 @@
     if (!p.settings || p.settings.length === 0) return;
     var settingsDiv = document.createElement('div');
     settingsDiv.className = 'plugin-settings plugin-settings-grid';
+    var settingValueByKey = {};
+    p.settings.forEach(function (s) {
+      settingValueByKey[s.key] = String(s.value ?? '');
+    });
+
+    function settingVisibleByCondition(s) {
+      if (!s.visibleWhen || !s.visibleWhen.key) return true;
+      var actual = settingValueByKey[s.visibleWhen.key];
+      if (Array.isArray(s.visibleWhen.values)) {
+        return s.visibleWhen.values.map(function (v) { return String(v); }).indexOf(actual) !== -1;
+      }
+      return actual === String(s.visibleWhen.value ?? '');
+    }
+
+    function refreshConditionalSettingVisibility() {
+      settingsDiv.querySelectorAll('.setting-row[data-setting-key]').forEach(function (row) {
+        var key = row.getAttribute('data-setting-key');
+        var setting = p.settings.find(function (candidate) { return candidate.key === key; });
+        if (!setting) return;
+        row.classList.toggle('hidden', !settingVisibleByCondition(setting));
+      });
+    }
 
     // Simple/Advanced split: settings flagged `advanced` are hidden unless
     // the GLOBAL "Advanced plugin settings" toggle (Settings → Plugins) is
@@ -9230,6 +9252,7 @@
       }
       if (s.advanced) rowClass += ' setting-advanced';
       row.className = rowClass;
+      row.setAttribute('data-setting-key', s.key);
 
       var label = document.createElement('span');
       label.className = 'setting-label';
@@ -9253,6 +9276,9 @@
           valueDisplay.textContent = slider.value + (s.max === 100 ? '%' : '');
         });
         slider.addEventListener('change', function () {
+          s.value = Number(slider.value);
+          settingValueByKey[s.key] = String(s.value);
+          refreshConditionalSettingVisibility();
           if (!ws || ws.readyState !== 1) return;
           ws.send(JSON.stringify({
             type: 'updateSetting',
@@ -9278,6 +9304,9 @@
           if (s.min !== undefined) nextValue = Math.max(Number(s.min), nextValue);
           if (s.max !== undefined) nextValue = Math.min(Number(s.max), nextValue);
           input.value = String(nextValue);
+          s.value = nextValue;
+          settingValueByKey[s.key] = String(nextValue);
+          refreshConditionalSettingVisibility();
           if (!ws || ws.readyState !== 1) return;
           ws.send(JSON.stringify({
             type: 'updateSetting',
@@ -9295,6 +9324,9 @@
           '<span class="toggle-slider"></span>';
         var cb = toggle.querySelector('input');
         cb.addEventListener('change', function () {
+          s.value = cb.checked;
+          settingValueByKey[s.key] = String(cb.checked);
+          refreshConditionalSettingVisibility();
           if (!ws || ws.readyState !== 1) return;
           ws.send(JSON.stringify({
             type: 'updateSetting',
@@ -9314,6 +9346,9 @@
           select.appendChild(option);
         });
         select.addEventListener('change', function () {
+          s.value = select.value;
+          settingValueByKey[s.key] = select.value;
+          refreshConditionalSettingVisibility();
           if (!ws || ws.readyState !== 1) return;
           ws.send(JSON.stringify({
             type: 'updateSetting',
@@ -9329,6 +9364,9 @@
         tinput.value = s.value ?? '';
         tinput.placeholder = s.label;
         tinput.addEventListener('change', function () {
+          s.value = tinput.value;
+          settingValueByKey[s.key] = String(tinput.value);
+          refreshConditionalSettingVisibility();
           if (!ws || ws.readyState !== 1) return;
           ws.send(JSON.stringify({
             type: 'updateSetting',
@@ -9375,6 +9413,7 @@
     });
     resetRow.appendChild(resetBtn);
     settingsDiv.appendChild(resetRow);
+    refreshConditionalSettingVisibility();
 
     parent.appendChild(settingsDiv);
   }

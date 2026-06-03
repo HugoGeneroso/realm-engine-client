@@ -52,6 +52,21 @@ inline void SehComputeProjPos(const WorldProjectile& p, float tMs, float& outX, 
     ProjectileTracking::ComputePosAtSafe(p, tMs, outX, outY);
 }
 
+bool ReadLivePlayerPosition(void* player, float& outX, float& outY)
+{
+    outX = 0.f;
+    outY = 0.f;
+    if (!player) return false;
+    __try {
+        const uint8_t* lp = reinterpret_cast<const uint8_t*>(player);
+        outX = *reinterpret_cast<const float*>(lp + RuntimeOffsets::PosX);
+        outY = *reinterpret_cast<const float*>(lp + RuntimeOffsets::PosY);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+    return std::isfinite(outX) && std::isfinite(outY);
+}
+
 // ── Dodge hit-scale (shared with MovementCorrector) ──────────────────────
 // Player-tunable multiplier on effective bullet half-size for the
 // CCD-based modes (Radial / Precision) and the MovementCorrector hook.
@@ -717,11 +732,11 @@ void __fastcall Detour_AppEngineUpdate(void* __this, void* method)
         }
         ResolveDeltaTime();
         const float dt = GetDeltaTime();
-        // Player world position read identically to AutoAim (kOffPosX/Y =
-        // RuntimeOffsets::PosX/PosY, resolved by RuntimeOffsets::EnsureAll).
-        const uint8_t* lp = reinterpret_cast<const uint8_t*>(p);
-        const float px = *reinterpret_cast<const float*>(lp + RuntimeOffsets::PosX);
-        const float py = *reinterpret_cast<const float*>(lp + RuntimeOffsets::PosY);
+        // Player world position read identically to AutoAim, but guarded: the
+        // local pointer can go stale during realm transitions / player swap frames.
+        float px = 0.f, py = 0.f;
+        if (!ReadLivePlayerPosition(p, px, py))
+            return;
         // SteerInput maintains the WASD release edge (cheap); it no longer
         // gates. ResolveEnemyLock publishes the lock/auto-lock standoff as the
         // shared external goal that dodge engines can consume.

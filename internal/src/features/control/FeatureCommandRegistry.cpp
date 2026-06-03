@@ -15,6 +15,7 @@
 #include "DbgFileLog.h"
 #include "AutoAim.h"
 #include "ProjNoclip.h"
+#include "PlayerCollider.h"
 #include "FpsSetter.h"
 #include "GhostHit.h"
 #include "gui/tabs/TestTAB.h"
@@ -101,13 +102,13 @@ namespace {
                 FeatureState::SetProjectileNoclipEnabled(on);
                 if (!on) ProjNoclip::SetEnabled(false);
             }),
+            FH("playerColliderSceneReset", PlayerCollider::ResetScene()),
             FH("clientDefense", FeatureState::SetClientDefense(static_cast<int32_t>(f.Int()))),
             FH("clientClassType", FeatureState::SetClientClassType(static_cast<int32_t>(f.Int()))),
             FH_INT("autoDodgeMode", IpcBridge_SetAutoDodgeMode),
             FH_FLOAT("autoDodgeHorizonMs", IpcBridge_SetAutoDodgeHorizonMs),
             FH_FLOAT("autoDodgeHitboxPadding", IpcBridge_SetAutoDodgeHitboxPadding),
             FH_BOOL("autoDodgeWallAvoid", IpcBridge_SetAutoDodgeWallAvoid),
-            FH("gameHitboxMult", TestTAB::SetGameHitboxOverride(f.Float() < 1.0f - 1e-4f, f.Float())),
             FH_FLOAT("speedHackMult", SpeedHack::SetMultiplier),
             FH_BOOL("autoAbilityEnabled", IpcBridge_SetAutoAbilityEnabled),
             FH_FLOAT("autoAbilityMpPct", IpcBridge_SetAutoAbilityMpPct),
@@ -174,16 +175,24 @@ namespace {
         return ApplyFeatureTable(f, h, sizeof(h) / sizeof(h[0]));
     }
 
-    bool ApplyZaclinFeature(const FeatureCommand& f)
+    bool ApplyZDodgeFeature(const FeatureCommand& f)
     {
         static const FeatureHandler h[] = {
-            FH_FLOAT("zaclinReactWindowMs", ZaclinDodge::SetReactWindowMs),
-            FH_FLOAT("zaclinMaxMoveTiles", ZaclinDodge::SetMaxMoveTiles),
-            FH_FLOAT("zaclinPlayerRadius", ZaclinDodge::SetPlayerRadius),
-            FH_FLOAT("zaclinProjectileRadiusFallback", ZaclinDodge::SetProjectileRadiusFallback),
-            FH_FLOAT("zaclinDamageThresholdPct", ZaclinDodge::SetDamageThresholdPct),
-            FH_INT_BOOL("zaclinDebugOverlay", ZaclinDodge::SetDebugOverlay),
-            FH_INT_BOOL("zaclinCandidateOverlay", ZaclinDodge::SetCandidateOverlay)
+            FH_FLOAT("zdodgeReactWindowMs", ZaclinDodge::SetReactWindowMs),
+            FH_FLOAT("zdodgeMaxMoveTiles", ZaclinDodge::SetMaxMoveTiles),
+            FH_FLOAT("zdodgePlayerRadius", ZaclinDodge::SetPlayerRadius),
+            FH_FLOAT("zdodgeProjectileHitScale", ZaclinDodge::SetProjectileHitScale),
+            FH_FLOAT("zdodgeProjectileRadiusFallback", ZaclinDodge::SetProjectileRadiusFallback),
+            FH_FLOAT("zdodgeClearanceTiles", ZaclinDodge::SetClearanceTiles),
+            FH_FLOAT("zdodgeSampleStepMs", ZaclinDodge::SetSampleStepMs),
+            FH_FLOAT("zdodgePerpWeight", ZaclinDodge::SetPerpWeight),
+            FH_FLOAT("zdodgeIntentWeight", ZaclinDodge::SetIntentWeight),
+            FH_FLOAT("zdodgeClearanceWeight", ZaclinDodge::SetClearanceWeight),
+            FH_FLOAT("zdodgeBackpedalPenalty", ZaclinDodge::SetBackpedalPenalty),
+            FH_FLOAT("zdodgeEnemyAvoidanceRadius", ZaclinDodge::SetEnemyAvoidanceRadius),
+            FH_FLOAT("zdodgeDamageThresholdPct", ZaclinDodge::SetDamageThresholdPct),
+            FH_INT_BOOL("zdodgeDebugOverlay", ZaclinDodge::SetDebugOverlay),
+            FH_INT_BOOL("zdodgeCandidateOverlay", ZaclinDodge::SetCandidateOverlay)
         };
         return ApplyFeatureTable(f, h, sizeof(h) / sizeof(h[0]));
     }
@@ -244,7 +253,7 @@ namespace FeatureCommandRegistry {
     {
         if (ApplyCoreFeature(feature)) return true;
         if (ApplyXDodgeFeature(feature)) return true;
-        if (ApplyZaclinFeature(feature)) return true;
+        if (ApplyZDodgeFeature(feature)) return true;
         if (ApplyRolloutFeature(feature)) return true;
         if (ApplyInputCameraSkinFeature(feature)) return true;
         ApplyDangerPlannerFeature(feature);

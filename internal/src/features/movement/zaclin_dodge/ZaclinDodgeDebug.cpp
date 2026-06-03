@@ -10,6 +10,10 @@
 namespace ZaclinDodge::Debug {
 namespace {
 
+constexpr float kDangerNearTiles = 2.f;
+constexpr float kDangerMidTiles = 6.f;
+constexpr float kDangerFarTiles = 10.f;
+
 bool ToScreen(Vec2 p, float camX, float camY, float angle, float zoom, float cx, float cy, ImVec2& out)
 {
     if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(camX) || !std::isfinite(camY) ||
@@ -35,6 +39,82 @@ void DrawLine(ImDrawList* draw, Vec2 a, Vec2 b, ImU32 color, float camX, float c
         draw->AddLine(sa, sb, color, thickness);
 }
 
+void DrawRect(ImDrawList* draw, Vec2 p, float halfSizePx, ImU32 color, float camX, float camY, float angle, float zoom, float cx, float cy)
+{
+    ImVec2 screen;
+    if (!ToScreen(p, camX, camY, angle, zoom, cx, cy, screen)) return;
+    draw->AddRect(
+        ImVec2(screen.x - halfSizePx, screen.y - halfSizePx),
+        ImVec2(screen.x + halfSizePx, screen.y + halfSizePx),
+        color,
+        0.f,
+        0,
+        1.f);
+}
+
+float Dist(Vec2 a, Vec2 b)
+{
+    const float dx = a.x - b.x;
+    const float dy = a.y - b.y;
+    return std::sqrt(dx * dx + dy * dy);
+}
+
+ImU32 PathColorByPlayerDistance(Vec2 a, Vec2 b, Vec2 player)
+{
+    const Vec2 mid{ (a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f };
+    const float dist = Dist(mid, player);
+
+    int r = 0;
+    int g = 255;
+    if (dist <= kDangerNearTiles) {
+        r = 255;
+        g = 0;
+    } else if (dist <= kDangerMidTiles) {
+        const float t = (dist - kDangerNearTiles) / (kDangerMidTiles - kDangerNearTiles);
+        r = 255;
+        g = static_cast<int>(std::clamp(t, 0.f, 1.f) * 255.f);
+    } else if (dist <= kDangerFarTiles) {
+        const float t = (dist - kDangerMidTiles) / (kDangerFarTiles - kDangerMidTiles);
+        r = static_cast<int>((1.f - std::clamp(t, 0.f, 1.f)) * 255.f);
+        g = 255;
+    }
+    return IM_COL32(r, g, 0, 255);
+}
+
+int ClosestSampleIndex(const Vec2* samples, int sampleCount, Vec2 current)
+{
+    int bestIdx = 0;
+    float bestDistSq = 3.402823466e+38f;
+    for (int i = 0; i < sampleCount; ++i) {
+        const float dx = samples[i].x - current.x;
+        const float dy = samples[i].y - current.y;
+        const float distSq = dx * dx + dy * dy;
+        if (distSq < bestDistSq) {
+            bestDistSq = distSq;
+            bestIdx = i;
+        }
+    }
+    return bestIdx;
+}
+
+void DrawThreatOverlay(ImDrawList* draw, const Threat& threat, Vec2 player,
+    float camX, float camY, float angle, float zoom, float cx, float cy)
+{
+    const int sampleCount = std::clamp(threat.sampleCount, 0, kMaxPathSamples);
+    if (sampleCount < 1) return;
+
+    const ImU32 projectileColor = IM_COL32(255, 255, 0, 255);
+    const Vec2 current = threat.samples[0];
+    DrawRect(draw, current, 5.f, projectileColor, camX, camY, angle, zoom, cx, cy);
+
+    if (sampleCount < 2) return;
+    const int startIdx = ClosestSampleIndex(threat.samples, sampleCount, current);
+    for (int s = startIdx; s + 1 < sampleCount; ++s) {
+        const ImU32 pathColor = PathColorByPlayerDistance(threat.samples[s], threat.samples[s + 1], player);
+        DrawLine(draw, threat.samples[s], threat.samples[s + 1], pathColor, camX, camY, angle, zoom, cx, cy, 1.f);
+    }
+}
+
 const char* StatusName(FrameStatus status)
 {
     switch (status) {
@@ -57,8 +137,6 @@ void Render(const DebugSnapshot& snapshot, const Settings& settings, float camX,
 {
     ImDrawList* draw = ImGui::GetBackgroundDrawList();
     if (!draw) return;
-    const ImU32 projectileColor = IM_COL32(255, 80, 80, 220);
-    const ImU32 pathColor = IM_COL32(255, 180, 80, 160);
     const ImU32 enemyColor = IM_COL32(255, 60, 200, 210);
     const ImU32 obstacleColor = IM_COL32(90, 160, 255, 190);
     const ImU32 safeColor = IM_COL32(80, 255, 140, 190);
@@ -71,13 +149,7 @@ void Render(const DebugSnapshot& snapshot, const Settings& settings, float camX,
     const SensorSnapshot& sensors = snapshot.sensors;
     const int threatCount = std::clamp(sensors.threatCount, 0, kMaxThreats);
     for (int i = 0; i < threatCount; ++i) {
-        const Threat& threat = sensors.threats[i];
-        const int sampleCount = std::clamp(threat.sampleCount, 0, kMaxPathSamples);
-        for (int s = 0; s < sampleCount; ++s) {
-            DrawCircle(draw, threat.samples[s], 3.f, projectileColor, camX, camY, angle, zoom, cx, cy);
-            if (s + 1 < sampleCount)
-                DrawLine(draw, threat.samples[s], threat.samples[s + 1], pathColor, camX, camY, angle, zoom, cx, cy, 1.f);
-        }
+        DrawThreatOverlay(draw, sensors.threats[i], snapshot.player, camX, camY, angle, zoom, cx, cy);
     }
 
     const int blockerCount = std::clamp(sensors.blockerCount, 0, kMaxBlockers);

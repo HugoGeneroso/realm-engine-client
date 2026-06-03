@@ -4,7 +4,7 @@
 
 namespace ZaclinDodge {
 
-constexpr int kCandidateDirections = 32;
+constexpr int kCandidateDirections = 24;
 constexpr int kRingPasses = 5;
 constexpr int kMaxCandidates = kCandidateDirections * kRingPasses;
 constexpr int kMaxThreats = 128;
@@ -33,13 +33,20 @@ enum class FrameStatus : uint8_t {
 };
 
 struct Settings {
-    float reactWindowMs = 650.f;
-    float maxMoveTiles = 1.25f;
-    float playerRadius = 0.25f;
-    float projectileRadiusFallback = 0.10f;
+    float reactWindowMs = 1200.f;
+    float maxMoveTiles = 0.55f;
+    float playerRadius = 0.05f;
+    float projectileHitScale = 0.9f;
+    float projectileRadiusFallback = 0.02f;
     float damageThresholdPct = 0.f;
-    float clearanceTiles = 0.08f;
-    bool debugOverlay = false;
+    float clearanceTiles = 0.03f;
+    float sampleStepMs = 40.f;
+    float perpWeight = 6.0f;
+    float intentWeight = 2.5f;
+    float clearanceWeight = 1.5f;
+    float backpedalPenalty = 3.0f;
+    float enemyAvoidanceRadius = 2.0f;
+    bool debugOverlay = true;
     bool candidateOverlay = true;
 };
 
@@ -54,6 +61,10 @@ struct Threat {
     float damage = 0.f;
     int sampleCount = 0;
     Vec2 samples[kMaxPathSamples]{};
+    float sampleTimesMs[kMaxPathSamples]{};
+    Vec2 boundsMin{};
+    Vec2 boundsMax{};
+    bool hasBounds = false;
 };
 
 struct Blocker {
@@ -70,6 +81,7 @@ struct SensorSnapshot {
     int blockerCount = 0;
     bool projectileSourceUnavailable = false;
     bool projectileLimited = false;
+    bool aoeLimited = false;
     bool blockerLimited = false;
 };
 
@@ -99,6 +111,7 @@ struct PlanRequest {
     Vec2 player{};
     Vec2 intentDir{};
     float moveBudget = 0.f;
+    float frameMs = 16.667f;
 };
 
 struct PlanResult {

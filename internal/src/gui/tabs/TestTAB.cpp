@@ -5,6 +5,7 @@
 #include "XDodge.h"
 #include "RolloutDodge.h"
 #include "ZaclinDodge.h"
+#include "ZaclinDodgeTarget.h"
 #include <windows.h>
 
 using TestTAB::DodgeMode;
@@ -128,7 +129,7 @@ void ApplyDodgeModeWithEnter(DodgeMode nextMode)
     // enabled at a time (mutual exclusivity enforced here).
     XDodge::SetEnabled(nextMode == DodgeMode::XDodge);
     RolloutDodge::SetEnabled(nextMode == DodgeMode::Rollout);
-    ZaclinDodge::SetEnabled(nextMode == DodgeMode::Zaclin);
+    ZaclinDodge::SetEnabled(nextMode == DodgeMode::ZDodge);
     if (nextMode == DodgeMode::XDodge) {
         XDodge::OnEnter();
         // Install the AppEngineManager::Update detour that drives the dodge Tick.
@@ -142,7 +143,7 @@ void ApplyDodgeModeWithEnter(DodgeMode nextMode)
     } else if (nextMode == DodgeMode::Rollout) {
         RolloutDodge::OnEnter();
         DangerPlanner::TryInstall();
-    } else if (nextMode == DodgeMode::Zaclin) {
+    } else if (nextMode == DodgeMode::ZDodge) {
         ZaclinDodge::OnEnter();
         DangerPlanner::TryInstall();
     }
@@ -157,20 +158,12 @@ void ApplyDodgeModeWithEnter(DodgeMode nextMode)
 } // namespace
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Game hitbox override — writes ObjectProperties.collisionRadiusMultiplier
-// on the local player every frame so client-side collision checks use it.
-//
-// Offsets (confirmed from types.cs dump):
-//   entity ptr  + 0x18 → ObjectProperties* (KJMONHENJEN.OBAKMCCDBJA)
-//   ObjectProps + 0x778 → float collisionRadiusMultiplier
-//   entity ptr  + 0x1C8 → ObjectProperties* (LKHPPBEGNOM.KKENJFFDMPO, may alias)
+// Legacy game hitbox display helpers. PlayerCollider is the only writer for
+// ObjectProperties.collisionRadiusMultiplier; this tab may read it for debug UI.
 // ─────────────────────────────────────────────────────────────────────────────
 static constexpr uint32_t kOffObjProps1      = 0x18;   // KJMONHENJEN.OBAKMCCDBJA
 static constexpr uint32_t kOffObjProps2      = 0x1C8;  // LKHPPBEGNOM.KKENJFFDMPO
-static constexpr uint32_t kOffCollisionMult  = 0x778;  // ObjectProperties.collisionRadiusMultiplier
-
-static bool  g_overrideGameHitbox  = false;
-static float g_gameHitboxMult      = 1.0f;   // 1.0 = default game size
+static constexpr uint32_t kOffCollisionMult  = 0x780;  // ObjectProperties.collisionRadiusMultiplier
 
 // Native speed mult: HBEAKBIHANL KDAJOMOFMJB via il2cpp_field_get_offset; optional UI scale in ProjectileTracking.
 static float g_flashSpeedMulUi = 1.f;
@@ -231,29 +224,6 @@ static float ReadCollisionMultAlt(void* entityPtr)
         return mult;
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
     return 1.0f;
-}
-
-// Writes `mult` to both ObjectProperties refs on the entity.
-static void WriteCollisionMult(void* entityPtr, float mult)
-{
-    if (!entityPtr) return;
-    __try {
-        uint8_t* e = reinterpret_cast<uint8_t*>(entityPtr);
-
-        void* op1 = *reinterpret_cast<void**>(e + kOffObjProps1);
-        if (op1) {
-            uintptr_t a = reinterpret_cast<uintptr_t>(op1);
-            if (a > 0x10000 && a < 0x7FFFFFFFFFFFULL)
-                *reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(op1) + kOffCollisionMult) = mult;
-        }
-
-        void* op2 = *reinterpret_cast<void**>(e + kOffObjProps2);
-        if (op2 && op2 != op1) {
-            uintptr_t a = reinterpret_cast<uintptr_t>(op2);
-            if (a > 0x10000 && a < 0x7FFFFFFFFFFFULL)
-                *reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(op2) + kOffCollisionMult) = mult;
-        }
-    } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
 // Player dodge Chebyshev half-edge from live CRM (matches in-game hitbox overlay).
@@ -654,6 +624,7 @@ void TestTAB::Tick(bool menuVisible)
             XDodge::RenderDebugPath(camX, camY, angleRad, zoom, cx, cy);
             RolloutDodge::RenderDebugPath(camX, camY, angleRad, zoom, cx, cy);
             ZaclinDodge::RenderDebugOverlay(camX, camY, angleRad, zoom, cx, cy);
+            ZaclinDodge::Target::Render(dl, camX, camY, angleRad, zoom, cx, cy);
         }
 
         // Locked enemy visualization — red reticle + two rings:
@@ -763,10 +734,6 @@ void TestTAB::Tick(bool menuVisible)
 
     // ── Movement priority: AutoDodge > Follow Entity > Walk To > Follow Mouse ─
     void* localPlayer = WorldTAB::GetLocalPtr();
-
-    // ── Game hitbox override — persist collisionRadiusMultiplier every frame ──
-    if (g_overrideGameHitbox && localPlayer)
-        WriteCollisionMult(localPlayer, g_gameHitboxMult);
 
     // ── Dodge → Follow Entity → Walk To → Follow Mouse ─────────────────────────
     bool dodgeMoved     = false;
@@ -914,6 +881,20 @@ void TestTAB::Tick(bool menuVisible)
             }
         }
 
+        // ── MMB: ZaclinDodge target lock ─────────────────────────────────────
+        // Middle-click near an enemy to lock it as the ZaclinDodge range-keeping
+        // target. Click the same enemy again to release (toggle). Picks by screen
+        // distance so the click maps exactly to what the player sees on screen.
+        {
+            static bool s_prevMmb = false;
+            const bool mmbDown = (GetAsyncKeyState(VK_MBUTTON) & 0x8000) != 0;
+            const bool mmbEdge = mmbDown && !s_prevMmb;
+            s_prevMmb = mmbDown;
+            if (mmbEdge && g_w2sValid && !menuVisible && !ImGui::GetIO().WantCaptureMouse)
+                ZaclinDodge::Target::ProcessClick(g_mouseSX, g_mouseSY,
+                                                  camX, camY, angleRad, zoom, cx, cy);
+        }
+
         // ── Player intent tracking ────────────────────────────────────────────
         // Read directly from the game's movement fields on the player object.
         // These are written by the game's InputHandler (WASD → camera-rotated world dir)
@@ -954,7 +935,7 @@ void TestTAB::RenderMovementSection()
     ImGui::Indent(8.f);
 
     int modeIdx = static_cast<int>(g_dodgeMode);
-    const char* modeLabels[] = { "Off", "RE-Plus", "RE-Sim", "Zaclin" };
+    const char* modeLabels[] = { "Off", "RE-Plus", "RE-Sim", "zDodge" };
     ImGui::SetNextItemWidth(240.f);
     if (ImGui::Combo("Mode##dodgeModeCombo", &modeIdx, modeLabels, IM_ARRAYSIZE(modeLabels))) {
         ApplyDodgeModeWithEnter(static_cast<DodgeMode>(modeIdx));
@@ -969,7 +950,7 @@ void TestTAB::RenderMovementSection()
     } else if (g_dodgeMode == DodgeMode::Rollout) {
         ImGui::Spacing();
         RolloutDodge::RenderSettings();
-    } else if (g_dodgeMode == DodgeMode::Zaclin) {
+    } else if (g_dodgeMode == DodgeMode::ZDodge) {
         ImGui::Spacing();
         ZaclinDodge::RenderSettings();
     }
@@ -1184,11 +1165,10 @@ void TestTAB::Render()
     ImGui::Separator();
     ImGui::Spacing();
 
-    // ── Game Hitbox Override (client collisionRadiusMultiplier) ───────────────
-    ImGui::TextColored(ImVec4(1.f, 0.75f, 0.2f, 1.f), "GAME HITBOX OVERRIDE");
+    // ── Game Hitbox Debug (client collisionRadiusMultiplier) ──────────────────
+    ImGui::TextColored(ImVec4(1.f, 0.75f, 0.2f, 1.f), "GAME HITBOX DEBUG");
     ImGui::Indent(8.f);
-    ImGui::TextDisabled("Writes ObjectProperties.collisionRadiusMultiplier every frame.");
-    ImGui::TextDisabled("Affects client-side collision (damage, hitbox check, tile squeeze).");
+    ImGui::TextDisabled("PlayerCollider owns collisionRadiusMultiplier writes.");
 
     {
         void* lp = WorldTAB::GetLocalPtr();
@@ -1198,21 +1178,6 @@ void TestTAB::Render()
             liveMult, 0.2285f * liveMult);
     }
 
-    ImGui::Spacing();
-    ImGui::Checkbox("Override Game Hitbox##ghbo", &g_overrideGameHitbox);
-    if (g_overrideGameHitbox) {
-        ImGui::Indent(8.f);
-        ImGui::SetNextItemWidth(160.f);
-        ImGui::SliderFloat("Multiplier##ghbm", &g_gameHitboxMult, 0.0f, 3.0f, "%.3f x");
-        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.f),
-            "  Effective radius: %.4f tiles", 0.2285f * g_gameHitboxMult);
-        if (ImGui::Button("Reset to Default##ghbr")) {
-            g_gameHitboxMult = 1.0f;
-            void* lp = WorldTAB::GetLocalPtr();
-            if (lp) WriteCollisionMult(lp, 1.0f);
-        }
-        ImGui::Unindent(8.f);
-    }
     ImGui::Unindent(8.f);
 
     ImGui::Spacing();
@@ -1303,7 +1268,7 @@ namespace TestTAB {
     void      SetDodgeMode(DodgeMode m)
     {
         const int v = static_cast<int>(m);
-        ApplyDodgeModeWithEnter((v >= 0 && v <= static_cast<int>(DodgeMode::Zaclin))
+        ApplyDodgeModeWithEnter((v >= 0 && v <= static_cast<int>(DodgeMode::ZDodge))
             ? m : DodgeMode::Off);
     }
     // SetDodgeModeWithEnter — IpcBridge calls this to route a dashboard dodge-mode
@@ -1386,12 +1351,6 @@ namespace TestTAB {
         return ReadCollisionMultAlt(lp);
     }
 
-    void SetGameHitboxOverride(bool on, float mult)
-    {
-        g_overrideGameHitbox = on;
-        g_gameHitboxMult = std::clamp(mult, 0.0f, 3.0f);
-    }
-    float GetGameHitboxMult() { return g_gameHitboxMult; }
-    bool  GetGameHitboxOverride() { return g_overrideGameHitbox; }
+    float GetGameHitboxMult() { return ReadGameHitboxMult(); }
 
 }

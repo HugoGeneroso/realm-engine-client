@@ -30,6 +30,8 @@ export interface SettingDef {
   max?: number;
   step?: number;
   options?: { label: string; value: string }[];
+  /** If set, this setting is rendered only when another setting has the requested value. */
+  visibleWhen?: { key: string; value?: any; values?: any[] };
   /** If set on a text setting, its current value is used as a single-key hotkey that fires the named button key. */
   hotkeyFor?: string;
   /** If true, the setting is not rendered in the dashboard UI (value can still be set via updateSetting). */

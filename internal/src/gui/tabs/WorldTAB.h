@@ -72,6 +72,8 @@ static constexpr uint8_t TCOND_NOWALK  = 0x10;
 // WorldProjectile — SpawnProjectile hook + WorldManager KJMONHENJEN containers (DIA4A offsets).
 // Filled from ProjectileTracking::SnapshotToWorld and WM dict/list merge on each refresh.
 // ─────────────────────────────────────────────────────────────────────────────
+static constexpr int kWorldProjectilePathSampleCap = 24;
+
 struct WorldProjectile
 {
     void*    ptr            = nullptr;
@@ -119,6 +121,12 @@ struct WorldProjectile
     void*    projPropsPtr   = nullptr;
     uint64_t spawnTick      = 0;
     bool     valid          = false;
+    bool     canHitPlayer   = false;
+    bool     hasCachedPath  = false;
+    int      pathSampleCount = 0;
+    float    pathSampleTimesMs[kWorldProjectilePathSampleCap]{};
+    float    pathX[kWorldProjectilePathSampleCap]{};
+    float    pathY[kWorldProjectilePathSampleCap]{};
     int32_t  attackerObjId  = 0;
     uint32_t ownerObjId     = 0;
     bool     hasCustomHitbox = false;

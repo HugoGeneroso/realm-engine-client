@@ -89,6 +89,8 @@ namespace RuntimeOffsets {
     // vx = *(entity + MoVelocity), vy = *(entity + MoVelocity + 4).
     // Fallback 0 = not yet resolved; AutoAim will fall back to position-history velocity.
     extern uint32_t MoVelocity;   // ECGPFJKCCAN   fallback 0
+    extern uint32_t MoObjectProps; // KKENJFFDMPO   fallback 0x1C8 (runtime metadata, no ACTK shift)
+    extern uint32_t PlayerCollisionProps; // GGBCADDBAPN fallback 0x2F0 (not ACTK-shifted)
 
     // ── ConditionEffects — bitmask values matching DIA4A SDK.h / Flash client layout ─────────────
     // COHCKAPOLCA UInt32[2] encodes a 64-bit bitmask split across 31-bit words.
@@ -288,6 +290,7 @@ namespace RuntimeOffsets {
 
     // ── ViewHandler (real field names, no shift) ─────────────────────────────
     extern uint32_t VH_SpriteShader;  // "spriteShader"  fallback 0x60
+    extern uint32_t VH_DestroyEntity; // "destroyEntity" fallback 0x88
 
     // ── LKHPPBEGNOM continued — facing angle (+0x50 ACTK) ────────────────────
     // ECHAFMAAKMD — float facingAngle (dump 0x1DC + ACTK 0x50 → runtime 0x22C).

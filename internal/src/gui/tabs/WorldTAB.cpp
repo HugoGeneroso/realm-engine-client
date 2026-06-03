@@ -5,6 +5,8 @@
 #include "gui/tabs/WorldTAB.h"
 #include "AoeTracking.h"
 #include "ProjectileTracking.h"
+#include "features/projectiles/ProjectileRuntimeReader.h"
+#include "features/projectiles/ProjectileTrajectory.h"
 #include "Il2CppResolver.h"
 #include "RuntimeOffsets.h"
 #include "GameState.h"
@@ -20,6 +22,7 @@
 #include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 #include <unordered_map>
 #include <unordered_set>
 #include <windows.h>
@@ -155,6 +158,7 @@ static std::unordered_map<uint32_t, bool>  s_blockedMap;    // present = movemen
 static std::unordered_map<uint32_t, bool>  s_fullOccupyMap; // present = tile has FullOccupy entity (for sub-tile neighbour check)
 static std::unordered_map<uint32_t, bool>  s_damagingMap;  // present = tile deals damage (minDmg/maxDmg > 0)
 static std::unordered_map<uint32_t, float> s_tileSpeedMap; // value = XML speed multiplier (non-zero tiles only)
+static std::mutex s_tileMapMutex;
 
 static inline uint32_t BlockedKey(int tx, int ty)
 {
@@ -164,24 +168,29 @@ static inline uint32_t BlockedKey(int tx, int ty)
 
 static void RebuildBlockedMap()
 {
-    s_blockedMap.clear();
-    s_fullOccupyMap.clear();
-    s_damagingMap.clear();
-    s_tileSpeedMap.clear();
+    std::unordered_map<uint32_t, bool> blockedMap;
+    std::unordered_map<uint32_t, bool> fullOccupyMap;
+    std::unordered_map<uint32_t, bool> damagingMap;
+    std::unordered_map<uint32_t, float> tileSpeedMap;
+
+    blockedMap.reserve(g_tiles.size() + g_entities.size());
+    fullOccupyMap.reserve(g_entities.size());
+    damagingMap.reserve(g_tiles.size());
+    tileSpeedMap.reserve(g_tiles.size());
 
     for (const WorldTile& t : g_tiles) {
         uint32_t k = BlockedKey(t.tileX, t.tileY);
         // Only truly impassable tiles go in the blocked map — damage tiles are
         // physically walkable (the game triggers damage from player centre, not hitbox).
         if (t.conds & TCOND_NOWALK)
-            s_blockedMap[k] = true;
+            blockedMap[k] = true;
         // Damaging tiles tracked separately: damage triggers when the player centre
         // (floor of world XY) lands on the tile, not when the hitbox overlaps it.
         if (t.minDmg > 0 || t.maxDmg > 0)
-            s_damagingMap[k] = true;
+            damagingMap[k] = true;
         // Store speed modifier for any tile that has one (0 = no modifier)
         if (t.speed != 0.f)
-            s_tileSpeedMap[k] = t.speed;
+            tileSpeedMap[k] = t.speed;
     }
 
     // Flash isWalkable() parity: a tile is blocked (cannot be entered from outside)
@@ -197,14 +206,20 @@ static void RebuildBlockedMap()
         if (e.objConds & (OCOND_OCCUPY_SQ | OCOND_FULL_OCC | OCOND_ENEMY_OCC)) {
             int tx = static_cast<int>(floorf(e.x));
             int ty = static_cast<int>(floorf(e.y));
-            s_blockedMap[BlockedKey(tx, ty)] = true;
+            blockedMap[BlockedKey(tx, ty)] = true;
         }
         if (e.objConds & OCOND_FULL_OCC) {
             int tx = static_cast<int>(floorf(e.x));
             int ty = static_cast<int>(floorf(e.y));
-            s_fullOccupyMap[BlockedKey(tx, ty)] = true;
+            fullOccupyMap[BlockedKey(tx, ty)] = true;
         }
     }
+
+    std::lock_guard<std::mutex> lock(s_tileMapMutex);
+    s_blockedMap.swap(blockedMap);
+    s_fullOccupyMap.swap(fullOccupyMap);
+    s_damagingMap.swap(damagingMap);
+    s_tileSpeedMap.swap(tileSpeedMap);
 }
 
 static std::string  g_status       = "Press Refresh while in-game.";
@@ -363,118 +378,6 @@ static float SehReadProjectileAngle148(void* elem)
     return a;
 }
 
-static void SehReadElemBulletScale(void* elem, float* outBaseR, float* outScale)
-{
-    *outBaseR = 0.f;
-    *outScale = 0.f;
-    __try {
-        uint8_t* pi = reinterpret_cast<uint8_t*>(elem);
-        *outBaseR = *reinterpret_cast<float*>(pi + RuntimeOffsets::KJ_BaseRadius);
-        *outScale = *reinterpret_cast<float*>(pi + RuntimeOffsets::KJ_Scale);
-    } __except (EXCEPTION_EXECUTE_HANDLER) {}
-}
-
-static float SehReadElemSkinWidth28(void* elem)
-{
-    float w = 0.f;
-    __try {
-        w = *reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(elem) + RuntimeOffsets::KJ_SkinWidthObj);
-    } __except (EXCEPTION_EXECUTE_HANDLER) {}
-    return w;
-}
-
-static void SehApplyProjPropsToWp(void* elem, void* projProps, WorldProjectile* wp)
-{
-    __try {
-        uint8_t* pp = reinterpret_cast<uint8_t*>(projProps);
-        wp->speed = static_cast<float>(*reinterpret_cast<int32_t*>(pp + RuntimeOffsets::PP_Speed));
-        {
-            float rawLt = *reinterpret_cast<float*>(pp + RuntimeOffsets::PP_Lifetime);
-            wp->lifetime = ProjectileTracking::NormalizeProjectileLifetimeMs(rawLt);
-        }
-        if (wp->lifetime < 50.f || wp->lifetime > 600000.f)
-            wp->lifetime = 120000.f;
-        wp->minDamage = *reinterpret_cast<int32_t*>(pp + RuntimeOffsets::PP_MinDamage);
-        wp->damage = *reinterpret_cast<int32_t*>(pp + RuntimeOffsets::PP_MaxDamage);
-        wp->wavy = *reinterpret_cast<bool*>(pp + RuntimeOffsets::PP_IsWavy);
-        wp->boomerang = *reinterpret_cast<bool*>(pp + RuntimeOffsets::PP_IsBoomerang);
-        wp->parametric = *reinterpret_cast<bool*>(pp + RuntimeOffsets::PP_IsParametric);
-        wp->frequency = *reinterpret_cast<float*>(pp + RuntimeOffsets::PP_Frequency);
-        wp->amplitude = *reinterpret_cast<float*>(pp + RuntimeOffsets::PP_Amplitude);
-        wp->isAccelerating = *reinterpret_cast<bool*>(pp + RuntimeOffsets::PP_IsAccel);
-        wp->acceleration = *reinterpret_cast<float*>(pp + RuntimeOffsets::PP_Acceleration);
-        wp->accelerationInv = *reinterpret_cast<float*>(pp + RuntimeOffsets::PP_AccelerationInv);
-        wp->velocityChangeRate = *reinterpret_cast<float*>(pp + RuntimeOffsets::PP_VelocityChangeRate);
-        wp->velocityChangeRateInv = *reinterpret_cast<float*>(pp + RuntimeOffsets::PP_VelocityChangeRateInv);
-        wp->accelDelay = ProjectileTracking::NormalizeAccelDelayMs(
-            *reinterpret_cast<float*>(pp + RuntimeOffsets::PP_AccelDelay));
-        wp->speedClamp = *reinterpret_cast<float*>(pp + RuntimeOffsets::PP_SpeedClamp);
-        wp->projPropsPtr = projProps;
-
-        float ld = *reinterpret_cast<float*>(pp + RuntimeOffsets::PP_LaserDist);
-        wp->laserDistance = (ld > 1e-4f && std::isfinite(ld)) ? ld : 0.f;
-        wp->laser = wp->laserDistance > 1e-3f;
-        wp->isTurning = *reinterpret_cast<bool*>(pp + RuntimeOffsets::PP_IsTurning);
-        wp->isCircleTurnDelayed = *reinterpret_cast<bool*>(pp + RuntimeOffsets::PP_IsTurning + 1);
-        wp->isTurningDelayed = *reinterpret_cast<bool*>(pp + RuntimeOffsets::PP_IsTurningDelayed);
-        wp->turnSnapsToStraight = *reinterpret_cast<bool*>(pp + RuntimeOffsets::PP_IsTurning + 5);
-        wp->isTurningAccelerated = *reinterpret_cast<bool*>(pp + RuntimeOffsets::PP_IsTurning + 3);
-        wp->turnRate = *reinterpret_cast<float*>(pp + RuntimeOffsets::PP_TurnRate);
-        if (!std::isfinite(wp->turnRate)) wp->turnRate = 0.f;
-        {
-            float v = *reinterpret_cast<float*>(pp + RuntimeOffsets::PP_TurnStopTime);
-            wp->turnStopTime = (std::isfinite(v) && v > 0.f) ? v : 0.f;
-            v = *reinterpret_cast<float*>(pp + RuntimeOffsets::PP_TurnRateDelay);
-            wp->turnRateDelay = ProjectileTracking::NormalizeAccelDelayMs(v);
-            v = *reinterpret_cast<float*>(pp + RuntimeOffsets::PP_CircleTurnAngle);
-            wp->circleTurnAngle = std::isfinite(v) ? v : 0.f;
-            v = *reinterpret_cast<float*>(pp + RuntimeOffsets::PP_CircleTurnDelay);
-            wp->circleTurnDelay = (std::isfinite(v) && v > 0.f) ? v : 0.f;
-            v = *reinterpret_cast<float*>(pp + RuntimeOffsets::PP_TurnAcceleration);
-            wp->turnAcceleration = std::isfinite(v) ? v : 0.f;
-            v = *reinterpret_cast<float*>(pp + RuntimeOffsets::PP_TurnAccelDelay);
-            wp->turnAccelDelay = std::isfinite(v) ? v : 0.f;
-            v = *reinterpret_cast<float*>(pp + RuntimeOffsets::PP_TurnClamp);
-            wp->turnClamp = std::isfinite(v) ? v : 0.f;
-            v = *reinterpret_cast<float*>(pp + RuntimeOffsets::PP_TurnAccelInv);
-            wp->turnAccelInv = std::isfinite(v) ? v : 0.f;
-        }
-        wp->speedMul = ProjectileTracking::EffectiveSpeedMulFromProjectile(elem);
-
-        float collMult = *reinterpret_cast<float*>(pp + RuntimeOffsets::PP_CollMult);
-        float projectileMagnitude = *reinterpret_cast<float*>(pp + RuntimeOffsets::PP_Magnitude);
-        wp->magnitude = projectileMagnitude;
-        constexpr float kProjMagToHalfRadius = 0.10f;
-        float fallbackSize =
-            (projectileMagnitude > 0.f) ? projectileMagnitude * kProjMagToHalfRadius : collMult;
-
-        float bulletBaseR = 0.f, bulletScale = 0.f;
-        SehReadElemBulletScale(elem, &bulletBaseR, &bulletScale);
-        float skinWidth = SehReadElemSkinWidth28(elem);
-
-        if (bulletBaseR > 0.01f && bulletScale > 0.01f && bulletScale < 20.f)
-            wp->projHalfSize = bulletBaseR * bulletScale;
-        else
-            wp->projHalfSize = (skinWidth > 0.f) ? skinWidth : fallbackSize;
-
-        bool hasCustomHitbox = *reinterpret_cast<bool*>(pp + RuntimeOffsets::PP_HasCustomHitbox);
-        if (hasCustomHitbox) {
-            void* customHitbox = *reinterpret_cast<void**>(pp + RuntimeOffsets::PP_CustomHitbox);
-            if (AddrValid(customHitbox)) {
-                uint8_t* ch = reinterpret_cast<uint8_t*>(customHitbox);
-                float offX = *reinterpret_cast<float*>(ch + RuntimeOffsets::CH_OffsetX);
-                float offY = *reinterpret_cast<float*>(ch + RuntimeOffsets::CH_OffsetY);
-                float hx = fabsf(offX), hy = fabsf(offY);
-                wp->projHalfSize = (hx > hy) ? hx : hy;
-            }
-        }
-        __try {
-            float t = *reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(elem) + RuntimeOffsets::Hbeak_ProjRadius);
-            if (t > 1e-4f && t < 16.f && std::isfinite(t)) wp->runtimeChebyshevHalf = t;
-        } __except (EXCEPTION_EXECUTE_HANDLER) {}
-    } __except (EXCEPTION_EXECUTE_HANDLER) {}
-}
-
 // If `elem` is HBEAKBIHANL (or subclass), append to `out`. DIA4A: HBEAKBIHANL : KJMONHENJEN.
 static void TryAppendHbeakFromElem(
     void*        elem,
@@ -508,19 +411,29 @@ static void TryAppendHbeakFromElem(
     wp.angle = SehReadProjectileAngle148(elem);
 
     void* projProps = nullptr;
-    if (SafeRead(elem, offProjPropsField, projProps) && AddrValid(projProps))
-        SehApplyProjPropsToWp(elem, projProps, &wp);
+    if (SafeRead(elem, offProjPropsField, projProps) && AddrValid(projProps)) {
+        ProjectileRuntimeReader::ApplyProperties(
+            wp, elem, projProps, ProjectileCollisionFallback::WorldManager);
+        if (wp.lifetime < 50.f || wp.lifetime > 600000.f)
+            wp.lifetime = 120000.f;
+        wp.speedMul = ProjectileTracking::EffectiveSpeedMulFromProjectile(elem);
+    }
 
-    // WM-only: approximate spawn from HBEAKBIHANL.GLEGBLDBOJF @ 0x16C (types.cs) as elapsed ms for straight shots.
+    // Approximate spawn from HBEAKBIHANL.GLEGBLDBOJF @ 0x16C (types.cs) as elapsed ms.
+    // This is the only reliable way to set spawnTick for projectiles discovered from
+    // WorldManager containers (non-spawn-hook path). Without it:
+    //   - elapsed = now - spawnTick ≈ 0 → projectiles never expire ("go on forever")
+    //   - path anchoring fails because live position doesn't align with t=0
     static constexpr uint32_t OFF_HBEAK_GLEGBLDBOJF = 0x16C;
     int32_t                   ageMs               = -1;
     SafeRead(elem, OFF_HBEAK_GLEGBLDBOJF, ageMs);
+    if (ageMs >= 0 && static_cast<float>(ageMs) < wp.lifetime * 1.05f && static_cast<float>(ageMs) < 120000.f)
+        wp.spawnTick = nowTick - static_cast<uint64_t>(ageMs);
+
     // Lasers are stationary: live XY == spawn origin, so back-calculating startX
     // via speed×age would produce a position one beam-length behind the emitter.
     const bool straight = !wp.wavy && !wp.parametric && !wp.laser && (fabsf(wp.amplitude) < 1e-4f);
-    if (straight && ageMs >= 0 && wp.speed > 1.f &&
-        static_cast<float>(ageMs) < wp.lifetime * 1.05f && static_cast<float>(ageMs) < 120000.f) {
-        wp.spawnTick = nowTick - static_cast<uint64_t>(ageMs);
+    if (straight && ageMs >= 0 && wp.speed > 1.f) {
         float dist   = (wp.speed / 10000.f) * static_cast<float>(ageMs);
         float ca     = cosf(wp.angle);
         float sa     = sinf(wp.angle);
@@ -530,6 +443,8 @@ static void TryAppendHbeakFromElem(
         wp.startX = wp.x;
         wp.startY = wp.y;
     }
+
+    ProjectileTrajectory::CachePath(wp);
 
     out.push_back(wp);
 }
@@ -2418,16 +2333,19 @@ namespace WorldTAB {
 
     bool IsTileBlocked(int tx, int ty)
     {
+        std::lock_guard<std::mutex> lock(s_tileMapMutex);
         return s_blockedMap.count(BlockedKey(tx, ty)) != 0;
     }
 
     bool IsTileFullOccupied(int tx, int ty)
     {
+        std::lock_guard<std::mutex> lock(s_tileMapMutex);
         return s_fullOccupyMap.count(BlockedKey(tx, ty)) != 0;
     }
 
     bool IsDamagingTile(int tx, int ty)
     {
+        std::lock_guard<std::mutex> lock(s_tileMapMutex);
         return s_damagingMap.count(BlockedKey(tx, ty)) != 0;
     }
 
@@ -2435,6 +2353,7 @@ namespace WorldTAB {
     // 0.0 = no modifier; > 1.0 = speedy ground; < 1.0 = slow ground.
     float GetTileSpeed(int tx, int ty)
     {
+        std::lock_guard<std::mutex> lock(s_tileMapMutex);
         auto it = s_tileSpeedMap.find(BlockedKey(tx, ty));
         return (it != s_tileSpeedMap.end()) ? it->second : 0.f;
     }
