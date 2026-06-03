@@ -617,9 +617,11 @@ static void CaptureProjPredictionViz(const std::vector<WorldProjectile>& projs,
         for (int i = 0; i < kVizProjSamples; ++i) {
             const float tMs = elapsed + static_cast<float>(i) * stepMs;
             if (b.lifetime > 0.f && tMs >= b.lifetime) break;
-            float bx, by;
-            if (i == 0) { bx = b.x; by = b.y; }
-            else {
+            // Initialize to live pos so ComputePosAtSafe's fallback is the current
+            // position, not uninitialized stack memory (which would be world-origin
+            // and project toward the top-left of the screen).
+            float bx = b.x, by = b.y;
+            if (i > 0) {
                 ProjectileTracking::ComputePosAtSafe(b, tMs, bx, by);
                 if (!std::isfinite(bx) || !std::isfinite(by)) break;
             }

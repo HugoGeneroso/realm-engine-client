@@ -1185,8 +1185,7 @@ static void RunAutoAimTickBody()
         // --- Compute effective projectile speed in tiles/sec (handles accelerating projs) ---
         // Use total range / lifetime as average effective speed â€” multitool's approach:
         //   projSpeed = sub_180003830(projProps, speedMult, lifetime) / (lifetime_s * speedMult)
-        // Our ProjectileTracking already computes range via IntegratedDistanceAlongAim which
-        // accounts for acceleration exactly the same way.
+        // ProjectileTracking samples the game-authored projectile path directly.
         float projSpeedTps = g_playerProjAverageSpeedTps.load(std::memory_order_relaxed);
 
         if (projSpeedTps < 0.1f) projSpeedTps = 10.f; // guard

@@ -320,7 +320,7 @@ export class ClientConnection {
   }
 
   private onServerData(data: Buffer): void {
-    Logger.log('Client', `[DIAG-onServerData] got ${data.length} bytes from server (firstByte=0x${data.length ? data[0].toString(16) : 'n/a'})`);
+    // Logger.log('Client', `[DIAG-onServerData] got ${data.length} bytes from server (firstByte=0x${data.length ? data[0].toString(16) : 'n/a'})`);
     // First data from server after HELLO — cancel retry timer
     if (!this._serverResponded) {
       this._serverResponded = true;

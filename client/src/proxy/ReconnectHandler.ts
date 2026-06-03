@@ -3,6 +3,7 @@ import type { ClientConnection } from './ClientConnection.js';
 import type { Packet } from '../packets/Packet.js';
 import { Logger } from '../util/Logger.js';
 import { signalHelloEvent } from '../native/hello-event.js';
+import { sendDllFeature } from '../bridge/DllFeatureBus.js';
 
 /**
  * Scan raw decrypted HELLO bytes to find the byte offset of the `key` field.
@@ -71,6 +72,7 @@ export class ReconnectHandler {
     // calling Run() so the overlay/menu/hooks only come online after the
     // client has actually reached the in-game HELLO handshake.
     signalHelloEvent();
+    sendDllFeature('playerColliderSceneReset', 1);
 
     // Look up or create state for this connection
     const key = packet.data.key as Buffer;

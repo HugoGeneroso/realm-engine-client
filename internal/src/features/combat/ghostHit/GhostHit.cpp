@@ -1,8 +1,8 @@
 #include "pch-il2cpp.h"
 #include "GhostHit.h"
 #include "../../movement/dodge/ProjectileTracking.h"
-#include "../../../ui/gui/tabs/WorldTAB.h"   // WorldProjectile
-#include "../../../ui/IpcBridge.h"
+#include "gui/tabs/WorldTAB.h"   // WorldProjectile
+#include "IpcBridge.h"
 
 #include <algorithm>
 #include <atomic>

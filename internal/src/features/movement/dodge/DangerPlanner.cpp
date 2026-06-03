@@ -3,6 +3,7 @@
 #include "DodgeGeometry.h"
 #include "XDodge.h"
 #include "RolloutDodge.h"
+#include "ZDodge.h"
 #include "DbgFileLog.h"
 #include "SteerInput.h"
 #include "GhostHit.h"
@@ -49,6 +50,21 @@ constexpr float kVetoedCellPenalty = 5000.f;
 inline void SehComputeProjPos(const WorldProjectile& p, float tMs, float& outX, float& outY)
 {
     ProjectileTracking::ComputePosAtSafe(p, tMs, outX, outY);
+}
+
+bool ReadLivePlayerPosition(void* player, float& outX, float& outY)
+{
+    outX = 0.f;
+    outY = 0.f;
+    if (!player) return false;
+    __try {
+        const uint8_t* lp = reinterpret_cast<const uint8_t*>(player);
+        outX = *reinterpret_cast<const float*>(lp + RuntimeOffsets::PosX);
+        outY = *reinterpret_cast<const float*>(lp + RuntimeOffsets::PosY);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+    return std::isfinite(outX) && std::isfinite(outY);
 }
 
 // ── Dodge hit-scale (shared with MovementCorrector) ──────────────────────
@@ -698,7 +714,8 @@ void __fastcall Detour_AppEngineUpdate(void* __this, void* method)
     // share the preamble, goal plumbing, and GhostHit safety net below.
     const bool xdodgeOn  = XDodge::IsEnabled();
     const bool rolloutOn = RolloutDodge::IsEnabled();
-    if (xdodgeOn || rolloutOn) {
+    const bool zaclinOn = ZDodge::IsEnabled();
+    if (xdodgeOn || rolloutOn || zaclinOn) {
         // Use GameState::GetLocalPtr() directly — the EXACT source AutoAim
         // uses (and AutoAim works). LocalPlayer::GetPtr() is a second-hand
         // mirror refreshed only by LocalPlayer::Tick() on the render thread
@@ -715,18 +732,19 @@ void __fastcall Detour_AppEngineUpdate(void* __this, void* method)
         }
         ResolveDeltaTime();
         const float dt = GetDeltaTime();
-        // Player world position read identically to AutoAim (kOffPosX/Y =
-        // RuntimeOffsets::PosX/PosY, resolved by RuntimeOffsets::EnsureAll).
-        const uint8_t* lp = reinterpret_cast<const uint8_t*>(p);
-        const float px = *reinterpret_cast<const float*>(lp + RuntimeOffsets::PosX);
-        const float py = *reinterpret_cast<const float*>(lp + RuntimeOffsets::PosY);
+        // Player world position read identically to AutoAim, but guarded: the
+        // local pointer can go stale during realm transitions / player swap frames.
+        float px = 0.f, py = 0.f;
+        if (!ReadLivePlayerPosition(p, px, py))
+            return;
         // SteerInput maintains the WASD release edge (cheap); it no longer
         // gates. ResolveEnemyLock publishes the lock/auto-lock standoff as the
-        // shared external goal that both engines consume.
+        // shared external goal that dodge engines can consume.
         SteerInput::Tick();
         ResolveEnemyLock(px, py);
-        if (rolloutOn) RolloutDodge::Tick(p, px, py, dt);
-        else           XDodge::Tick(p, px, py, dt);
+        if (zaclinOn)       ZDodge::Tick(p, px, py, dt);
+        else if (rolloutOn) RolloutDodge::Tick(p, px, py, dt);
+        else                XDodge::Tick(p, px, py, dt);
         // GhostHit runs independently — a SAFETY net for bullets the game's
         // own per-tick collision skipped. Cheap when off (one atomic load).
         GhostHit::Tick(p, px, py);

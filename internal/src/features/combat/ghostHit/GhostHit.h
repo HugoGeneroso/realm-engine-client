@@ -15,8 +15,8 @@
 // already on the wire. This is the "ghost hit" pattern.
 //
 // GhostHit closes the gap by doing our OWN swept-segment collision check
-// every game-update tick, against the SAME prediction (ComputePosAtSafe)
-// the dodge uses, but on the player's actual position rather than the
+// every game-update tick, against the same game-authored projectile position
+// sampler the dodge uses, but on the player's actual position rather than the
 // dodge's planning grid. When we detect a hit the game would have missed,
 // we emit a signed event to the proxy via IpcBridge; the proxy crafts a
 // PLAYERHIT packet on our behalf, which the server applies and which the

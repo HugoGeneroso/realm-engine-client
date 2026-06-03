@@ -3,6 +3,7 @@
 #include "GameState.h"
 #include "RuntimeOffsets.h"
 #include "Il2CppResolver.h"
+#include "PlayerCollider.h"
 
 #include <cmath>
 #include <cstring>
@@ -213,6 +214,8 @@ void Tick()
 
     if (s_ptr)
         ReadFromPtr();
+
+    PlayerCollider::Tick(s_ptr);
 
     DumpStatsIfEnabled();
 }

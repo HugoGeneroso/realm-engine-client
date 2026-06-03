@@ -19,11 +19,11 @@ import { Logger } from './Logger.js';
 // rotmgAssetExtractor) to bundle sharp's native deps even though
 // they never call extractLocalGameAssets. Dynamic + esbuild-external
 // keeps the plugin bundle clean.
-type SharpModule = typeof import('sharp');
-let _sharp: SharpModule['default'] | null = null;
-async function loadSharp(): Promise<SharpModule['default']> {
+type SharpFactory = typeof import('sharp');
+let _sharp: SharpFactory | null = null;
+async function loadSharp(): Promise<SharpFactory> {
   if (_sharp) return _sharp;
-  const mod = await import('sharp');
+  const mod = await import('sharp') as unknown as { default: SharpFactory };
   _sharp = mod.default;
   return _sharp;
 }

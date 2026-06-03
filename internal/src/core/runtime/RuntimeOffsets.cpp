@@ -38,6 +38,12 @@ uint32_t PlayerIGN   = 0x178;
 uint32_t MoConditions = 0x298;
 // ECGPFJKCCAN — Vector2 velocity. 0 = unresolved; AutoAim falls back to history.
 uint32_t MoVelocity   = 0;
+// KKENJFFDMPO — LKHPPBEGNOM ObjectProperties alias. Runtime metadata resolves this at 0x1C8.
+uint32_t MoObjectProps = 0x1C8;
+// GGBCADDBAPN — player collision ObjectProperties used by the C# working implementation.
+// Generated/inherited player layout resolves this at 0x2F0; unlike the stat fields above,
+// runtime evidence shows this ObjectProperties pointer is not ACTK-shifted.
+uint32_t PlayerCollisionProps = 0x2F0;
 
 uint32_t Tex1              = 0x4C4;
 uint32_t Tex2              = 0x538;
@@ -150,6 +156,7 @@ uint32_t PP_IsArmorPiercing       = 0x138;  // "IsArmorPiercing"
 uint32_t CH_OffsetX               = 0x10;   // "offsetX" — custom hitbox X offset Single
 uint32_t CH_OffsetY               = 0x14;   // "offsetY" — custom hitbox Y offset Single
 uint32_t VH_SpriteShader          = 0x60;   // "spriteShader" — SpriteShader on ViewHandler
+uint32_t VH_DestroyEntity         = 0x88;   // "destroyEntity" — authoritative entity pointer on ViewHandler
 
 // ── LKHPPBEGNOM facing angle (+0x50 ACTK) ────────────────────────────────
 // ECHAFMAAKMD — dump 0x1DC + kActk 0x50 = runtime 0x22C
@@ -248,6 +255,8 @@ static Entry s_entries[] = {
     { "LKHPPBEGNOM", { "DPGEBOCBKEF" },                              1, 0,     &PlayerIGN,     false },
     { "LKHPPBEGNOM", { "COHCKAPOLCA" },                           1, kActk, &MoConditions,  false },
     { "LKHPPBEGNOM", { "ECGPFJKCCAN" },                           1, kActk, &MoVelocity,    false },
+    { "LKHPPBEGNOM", { "KKENJFFDMPO" },                           1, 0,     &MoObjectProps, false },
+    { "LKHPPBEGNOM", { "GGBCADDBAPN" },                           1, 0,     &PlayerCollisionProps, false },
 
     // ── FKALGHJIADI (+0x50 ACTK for own fields) ───────────────────────────
     { "FKALGHJIADI", { "HCMECDPHEMC" },                              1, kActk, &Tex1,          false },
@@ -333,9 +342,7 @@ static Entry s_entries[] = {
                                  "Acceleration", "acceleration" },    4, 0,     &PP_Acceleration,    false },
     { "ProjectileProperties", { "IsAccelerating", "isAccelerating" }, 2, 0, &PP_IsAccel,  false },
     // UseAcceleration is the per-shot enable, NOT an alias for IsAccelerating.
-    // Game-side acceleration is only applied when BOTH are true; treating them
-    // as the same field made non-accelerating shots predict as accelerating
-    // (and vice-versa) — see ProjectileTracking::IntegratedDistanceAlongAim.
+    // Keep separate so cached game-authored projectile paths receive correct props.
     { "ProjectileProperties", { "UseAcceleration", "useAcceleration" }, 2, 0, &PP_UseAccel, false },
     { "ProjectileProperties", { "AccelerationInv", "accelerationInv" },   2, 0,     &PP_AccelerationInv, false },
     { "ProjectileProperties", { "VelocityChangeRate", "velocityChangeRate" }, 2, 0, &PP_VelocityChangeRate, false },
@@ -376,6 +383,7 @@ static Entry s_entries[] = {
 
     // ── ViewHandler (real names, no shift) ─────────────────────────────────────
     { "ViewHandler", { "spriteShader" },                                          1, 0, &VH_SpriteShader,       false },
+    { "ViewHandler", { "destroyEntity" },                                        1, 0, &VH_DestroyEntity,      false },
 
     // ── LKHPPBEGNOM facing angle (+0x50 ACTK) ────────────────────────────────
     // ECHAFMAAKMD (dump 0x1DC + kActk = 0x22C runtime). Written by SendShotPacketDetour.

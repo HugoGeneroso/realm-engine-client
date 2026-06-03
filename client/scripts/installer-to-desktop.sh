@@ -9,7 +9,9 @@
 set -euo pipefail
 
 CLIENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DESKTOP="/mnt/c/Users/Jesse/Desktop"
+# Derive the Windows desktop path from the current Windows user via WSL interop.
+WIN_USER="$(cmd.exe /c echo %USERNAME% 2>/dev/null | tr -d '\r')"
+DESKTOP="/mnt/c/Users/${WIN_USER}/Desktop"
 DEST="$DESKTOP/RealmEngine-Installer"
 MODE="${1:-full}"
 

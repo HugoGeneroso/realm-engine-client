@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <None Include="defs\version.def" />
@@ -10,12 +10,17 @@
     <ClCompile Include="src\core\il2cpp\pch-il2cpp.cpp" />
     <ClCompile Include="src\bootstrap\version.cpp" />
     <ClCompile Include="src\platform\dx11\Dx11.cpp" />
-    <ClCompile Include="src\ui\IpcBridge.cpp" />
-    <ClCompile Include="src\ui\Handshake.cpp" />
-    <ClCompile Include="src\ui\gui\tabs\CameraTAB.cpp" />
-    <ClCompile Include="src\ui\gui\tabs\WorldTAB.cpp" />
-    <ClCompile Include="src\ui\gui\tabs\PlayerTAB.cpp" />
-    <ClCompile Include="src\ui\gui\tabs\TestTAB.cpp" />
+    <ClCompile Include="src\core\ipc\IpcBridge.cpp" />
+    <ClCompile Include="src\core\ipc\IpcFraming.cpp" />
+    <ClCompile Include="src\core\ipc\IpcJson.cpp" />
+    <ClCompile Include="src\core\ipc\IpcMessages.cpp" />
+    <ClCompile Include="src\core\ipc\IpcSession.cpp" />
+    <ClCompile Include="src\core\ipc\IpcTileState.cpp" />
+    <ClCompile Include="src\core\ipc\Handshake.cpp" />
+    <ClCompile Include="src\gui\tabs\CameraTAB.cpp" />
+    <ClCompile Include="src\gui\tabs\WorldTAB.cpp" />
+    <ClCompile Include="src\gui\tabs\PlayerTAB.cpp" />
+    <ClCompile Include="src\gui\tabs\TestTAB.cpp" />
     <ClCompile Include="src\features\movement\dodge\ChatToast.cpp" />
     <ClCompile Include="src\features\movement\dodge\XDodge.cpp" />
     <ClCompile Include="src\features\movement\dodge\DangerPlanner.cpp" />
@@ -25,16 +30,24 @@
     <ClCompile Include="src\features\movement\dodge\MovementRuntime.cpp" />
     <ClCompile Include="src\features\movement\dodge\ProjectileCatalog.cpp" />
     <ClCompile Include="src\features\movement\dodge\SteerInput.cpp" />
-    <ClCompile Include="src\ui\gui\tabs\CombatTab\CombatTAB.cpp" />
+    <ClCompile Include="src\features\movement\zdodge\ZDodge.cpp" />
+    <ClCompile Include="src\features\movement\zdodge\ZDodgePlanner.cpp" />
+    <ClCompile Include="src\features\movement\zdodge\ZDodgeSensors.cpp" />
+    <ClCompile Include="src\features\movement\zdodge\ZDodgeDebug.cpp" />
+    <ClCompile Include="src\features\movement\zdodge\ZDodgeTarget.cpp" />
+    <ClCompile Include="src\gui\tabs\CombatTab\CombatTAB.cpp" />
     <ClCompile Include="src\features\combat\autoaim\FeatAutoAim.cpp" />
     <ClCompile Include="src\features\combat\autoaim\FeatMagnetAim.cpp" />
     <ClCompile Include="src\features\loot\BagLooter.cpp" />
     <ClCompile Include="src\features\combat\autonexus\AutoNexus.cpp" />
     <ClCompile Include="src\features\combat\ghostHit\GhostHit.cpp" />
-    <ClCompile Include="src\ui\gui\tabs\VisualsTAB.cpp" />
+    <ClCompile Include="src\gui\tabs\VisualsTAB.cpp" />
     <ClCompile Include="src\platform\hooks\DirectX.cpp" />
     <ClCompile Include="src\platform\hooks\InitHooks.cpp" />
     <ClCompile Include="src\features\movement\dodge\ProjectileTracking.cpp" />
+    <ClCompile Include="src\features\projectiles\ProjectileRuntimeReader.cpp" />
+    <ClCompile Include="src\features\projectiles\ProjectileStore.cpp" />
+    <ClCompile Include="src\features\projectiles\ProjectileTrajectory.cpp" />
     <ClCompile Include="src\features\account\HwidCapture.cpp" />
     <ClCompile Include="src\features\account\CharSelect.cpp" />
     <ClCompile Include="src\features\account\CredentialCapture.cpp" />
@@ -48,6 +61,11 @@
     <ClCompile Include="src\features\combat\autoaim\ProjNoclip.cpp" />
     <ClCompile Include="src\features\movement\noclip\Noclip.cpp" />
     <ClCompile Include="src\features\movement\noclip\NoclipHook.cpp" />
+    <ClCompile Include="src\features\movement\noclip\PlayerCollider.cpp" />
+    <ClCompile Include="src\features\control\FeatureState.cpp" />
+    <ClCompile Include="src\features\control\FeatureCommandRegistry.cpp" />
+    <ClCompile Include="src\features\visuals\FloatingTextService.cpp" />
+    <ClCompile Include="src\features\runtime\FeatureRuntime.cpp" />
     <ClCompile Include="vendor\minhook\hook.c" />
     <ClCompile Include="vendor\minhook\buffer.c" />
     <ClCompile Include="vendor\minhook\trampoline.c" />
@@ -83,18 +101,26 @@
     <ClInclude Include="src\core\il2cpp\pch-il2cpp.h" />
     <ClInclude Include="src\bootstrap\version.h" />
     <ClInclude Include="src\platform\dx11\Dx11.h" />
-    <ClInclude Include="src\ui\IpcBridge.h" />
-    <ClInclude Include="src\ui\Handshake.h" />
-    <ClInclude Include="src\ui\gui\tabs\CameraTAB.h" />
-    <ClInclude Include="src\ui\gui\tabs\WorldTAB.h" />
-    <ClInclude Include="src\ui\gui\tabs\PlayerTAB.h" />
-    <ClInclude Include="src\ui\gui\tabs\TestTAB.h" />
-    <ClInclude Include="src\ui\gui\tabs\CombatTab\CombatTAB.h" />
-    <ClInclude Include="src\ui\gui\tabs\VisualsTAB.h" />
+    <ClInclude Include="src\core\ipc\IpcBridge.h" />
+    <ClInclude Include="src\core\ipc\IpcFraming.h" />
+    <ClInclude Include="src\core\ipc\IpcJson.h" />
+    <ClInclude Include="src\core\ipc\IpcMessages.h" />
+    <ClInclude Include="src\core\ipc\IpcSession.h" />
+    <ClInclude Include="src\core\ipc\IpcTileState.h" />
+    <ClInclude Include="src\core\ipc\Handshake.h" />
+    <ClInclude Include="src\gui\tabs\CameraTAB.h" />
+    <ClInclude Include="src\gui\tabs\WorldTAB.h" />
+    <ClInclude Include="src\gui\tabs\PlayerTAB.h" />
+    <ClInclude Include="src\gui\tabs\TestTAB.h" />
+    <ClInclude Include="src\gui\tabs\CombatTab\CombatTAB.h" />
+    <ClInclude Include="src\gui\tabs\VisualsTAB.h" />
     <ClInclude Include="src\game\math\W2S.h" />
     <ClInclude Include="src\platform\hooks\DirectX.h" />
     <ClInclude Include="src\platform\hooks\InitHooks.h" />
     <ClInclude Include="src\features\movement\dodge\ProjectileTracking.h" />
+    <ClInclude Include="src\features\projectiles\ProjectileRuntimeReader.h" />
+    <ClInclude Include="src\features\projectiles\ProjectileStore.h" />
+    <ClInclude Include="src\features\projectiles\ProjectileTrajectory.h" />
     <ClInclude Include="src\features\account\HwidCapture.h" />
     <ClInclude Include="src\features\account\CharSelect.h" />
     <ClInclude Include="src\features\account\CredentialCapture.h" />
@@ -118,6 +144,12 @@
     <ClInclude Include="src\features\movement\dodge\MovementRuntime.h" />
     <ClInclude Include="src\features\movement\dodge\ProjectileCatalog.h" />
     <ClInclude Include="src\features\movement\dodge\SteerInput.h" />
+    <ClInclude Include="src\features\movement\zdodge\ZDodge.h" />
+    <ClInclude Include="src\features\movement\zdodge\ZDodgeTypes.h" />
+    <ClInclude Include="src\features\movement\zdodge\ZDodgePlanner.h" />
+    <ClInclude Include="src\features\movement\zdodge\ZDodgeSensors.h" />
+    <ClInclude Include="src\features\movement\zdodge\ZDodgeDebug.h" />
+    <ClInclude Include="src\features\movement\zdodge\ZDodgeTarget.h" />
     <ClInclude Include="vendor\minhook\MinHook.h" />
     <ClInclude Include="src\core\config\keybinds.h" />
     <ClInclude Include="src\core\runtime\Il2CppResolver.h" />
@@ -134,6 +166,11 @@
     <ClInclude Include="src\features\combat\autoaim\ProjNoclip.h" />
     <ClInclude Include="src\features\movement\noclip\Noclip.h" />
     <ClInclude Include="src\features\movement\noclip\NoclipHook.h" />
+    <ClInclude Include="src\features\movement\noclip\PlayerCollider.h" />
+    <ClInclude Include="src\features\control\FeatureState.h" />
+    <ClInclude Include="src\features\control\FeatureCommandRegistry.h" />
+    <ClInclude Include="src\features\visuals\FloatingTextService.h" />
+    <ClInclude Include="src\features\runtime\FeatureRuntime.h" />
     <ClInclude Include="src\game\symbols\BeebyteName.h" />
     <ClInclude Include="vendor\detours\detours.h" />
     <ClInclude Include="vendor\imgui\imconfig.h" />
@@ -146,6 +183,7 @@
     <ClInclude Include="vendor\imgui\imstb_truetype.h" />
     <ClInclude Include="src\bootstrap\main.h" />
     <ClInclude Include="src\core\config\settings.h" />
+    <ClInclude Include="src\core\security\xorstr.h" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="appdata">
