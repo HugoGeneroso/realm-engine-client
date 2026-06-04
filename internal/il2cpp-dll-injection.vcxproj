@@ -86,6 +86,11 @@
     <ClCompile Include="src\features\account\CharSelect.cpp" />
     <ClCompile Include="src\features\account\CredentialCapture.cpp" />
     <ClCompile Include="src\features\combat\autoaim\AutoAim.cpp" />
+    <ClCompile Include="src\features\combat\autoaim\AimMath.cpp" />
+    <ClCompile Include="src\features\combat\autoaim\WeaponProfile.cpp" />
+    <ClCompile Include="src\features\combat\autoaim\TargetSelector.cpp" />
+    <ClCompile Include="src\features\combat\autoaim\AimHooks.cpp" />
+    <ClCompile Include="src\features\combat\enemytracker\EnemyTracker.cpp" />
     <ClCompile Include="src\features\combat\autoability\AutoAbility.cpp" />
     <ClCompile Include="src\features\movement\dodge\AoeTracking.cpp" />
     <ClCompile Include="src\features\visuals\skins\character\SkinChanger.cpp" />
@@ -198,6 +203,11 @@
     <ClInclude Include="src\features\account\CharSelect.h" />
     <ClInclude Include="src\features\account\CredentialCapture.h" />
     <ClInclude Include="src\features\combat\autoaim\AutoAim.h" />
+    <ClInclude Include="src\features\combat\autoaim\AimMath.h" />
+    <ClInclude Include="src\features\combat\autoaim\WeaponProfile.h" />
+    <ClInclude Include="src\features\combat\autoaim\TargetSelector.h" />
+    <ClInclude Include="src\features\combat\autoaim\AimHooks.h" />
+    <ClInclude Include="src\features\combat\enemytracker\EnemyTracker.h" />
     <ClInclude Include="src\features\combat\autoability\AutoAbility.h" />
     <ClInclude Include="src\features\movement\dodge\AoeTracking.h" />
     <ClInclude Include="src\features\visuals\skins\character\SkinChanger.h" />
