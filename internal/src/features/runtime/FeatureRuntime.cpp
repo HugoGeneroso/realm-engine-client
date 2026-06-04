@@ -43,6 +43,7 @@ namespace {
             AutoAim::AimMode resolved = AutoAim::AimMode::ClosestToPlayer;
             if (aimMode == 1)      resolved = AutoAim::AimMode::HighestHP;
             else if (aimMode == 2) resolved = AutoAim::AimMode::ClosestToMouse;
+            else if (aimMode == 3) resolved = AutoAim::AimMode::Locked;
             AutoAim::SetAimMode(resolved);
         }
     }

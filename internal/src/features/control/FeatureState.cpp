@@ -37,7 +37,7 @@ namespace FeatureState {
 bool    GetAutoAimEnabled()           { return s_featAutoAimEnabled.load(std::memory_order_relaxed) != 0; }
 int     GetAutoAimMode()              { return s_featAutoAimMode.load(std::memory_order_relaxed); }
 void    SetAutoAimEnabled(bool v)     { s_featAutoAimEnabled.store(v ? 1 : 0, std::memory_order_relaxed); }
-void    SetAutoAimMode(int mode)      { s_featAutoAimMode.store(ClampInt(mode, 0, 2), std::memory_order_relaxed); }
+void    SetAutoAimMode(int mode)      { s_featAutoAimMode.store(ClampInt(mode, 0, 3), std::memory_order_relaxed); }
 
 int     GetAutoDodgeMode()            { return s_featDodgeMode.load(std::memory_order_relaxed); }
 void    SetAutoDodgeMode(int mode)    { s_featDodgeMode.store(ClampInt(mode, 0, static_cast<int>(TestTAB::DodgeMode::ZDodge)), std::memory_order_relaxed); }
