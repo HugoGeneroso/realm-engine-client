@@ -103,26 +103,31 @@ static void UpdateVelocity(int32_t id, float ex, float ey, ULONGLONG now, void* 
         return;
     }
 
-    const float dt  = static_cast<float>(now > e.t ? (now - e.t) : 1ULL);
-    const float dtC = (dt < 1.f) ? 1.f : (dt > 500.f ? 500.f : dt);
-    const float dx  = ex - e.x, dy = ey - e.y;
-    float ivx = dx / dtC, ivy = dy / dtC;
-    const float mag = sqrtf(ivx * ivx + ivy * ivy);
-    if (mag > kMaxInstTilesPerMs && mag > 1e-8f) {
-        const float s = kMaxInstTilesPerMs / mag;
-        ivx *= s; ivy *= s;
-    }
+    const float dx = ex - e.x, dy = ey - e.y;
     const float distSq = dx * dx + dy * dy;
-    float blend = 0.4f;
-    if (dt >= kServerTickMsMin && dt <= kServerTickMsMax && distSq > 1e-10f)
-        blend = 0.9f;
-    if (e.t != 0 && distSq > 1e-14f) {
-        e.vx = e.vx * (1.f - blend) + ivx * blend;
-        e.vy = e.vy * (1.f - blend) + ivy * blend;
-    } else if (distSq > 1e-14f) {
-        e.vx = ivx; e.vy = ivy;
+    e.x = ex; e.y = ey;
+    if (distSq > 1e-14f) {
+        // dt spans the true inter-position interval (server tick), not just the poll
+        // interval, because e.t is only updated when the position actually changes.
+        const float dt  = static_cast<float>(now > e.t ? (now - e.t) : 1ULL);
+        const float dtC = (dt < 1.f) ? 1.f : (dt > 500.f ? 500.f : dt);
+        float ivx = dx / dtC, ivy = dy / dtC;
+        const float mag = sqrtf(ivx * ivx + ivy * ivy);
+        if (mag > kMaxInstTilesPerMs && mag > 1e-8f) {
+            const float s = kMaxInstTilesPerMs / mag;
+            ivx *= s; ivy *= s;
+        }
+        float blend = 0.4f;
+        if (dt >= kServerTickMsMin && dt <= kServerTickMsMax)
+            blend = 0.9f;
+        if (e.t != 0) {
+            e.vx = e.vx * (1.f - blend) + ivx * blend;
+            e.vy = e.vy * (1.f - blend) + ivy * blend;
+        } else {
+            e.vx = ivx; e.vy = ivy;
+        }
+        e.t = now;
     }
-    e.x = ex; e.y = ey; e.t = now;
 }
 
 // ── World scan helpers ───────────────────────────────────────────────────────
@@ -170,19 +175,16 @@ static bool SehReadCandidate(uint8_t* entry, void* local, uint64_t localKlass, C
         // noHealthBar (walls/destructibles) — stored as metadata, not hard-rejected
         const uint8_t noHB = *reinterpret_cast<uint8_t*>(op + kOffOpNoHealthBar);
 
-        // XML <Invincible/> — check InvincibleElement string length
-        bool isInvuln = false;
+        // XML <Invincible/> — reject if InvincibleElement pointer exists (regardless of string)
         void* invPtr = *reinterpret_cast<void**>(op + kOffOpInvincElem);
-        if (invPtr && AddrOk(invPtr)) {
-            int32_t strLen = -1;
-            __try { strLen = *reinterpret_cast<int32_t*>(reinterpret_cast<uint8_t*>(invPtr) + 0x10); }
-            __except (EXCEPTION_EXECUTE_HANDLER) {}
-            if (strLen > 0) isInvuln = true;
-        }
+        if (invPtr && AddrOk(invPtr))
+            return false;
+
+        bool isInvuln = false;
 
         const int32_t hp    = *reinterpret_cast<int32_t*>(ent + kOffHp);
         const int32_t maxHp = *reinterpret_cast<int32_t*>(ent + kOffMaxHp);
-        if (hp <= 0 || maxHp <= 0)
+        if (hp <= 0 || maxHp <= 0 || hp > maxHp)
             return false;
 
         const int32_t objType = *reinterpret_cast<int32_t*>(ent + kOffObjType);
@@ -199,12 +201,17 @@ static bool SehReadCandidate(uint8_t* entry, void* local, uint64_t localKlass, C
         if (condOk && (cond0 | cond1) && RuntimeOffsets::MapObjectConditionsMakeUntargetable(cond0, cond1))
             return false;
 
+        const float ex2 = *reinterpret_cast<float*>(ent + kOffPosX);
+        const float ey2 = *reinterpret_cast<float*>(ent + kOffPosY);
+        if (!std::isfinite(ex2) || !std::isfinite(ey2) || (ex2 == 0.f && ey2 == 0.f))
+            return false;
+
         out.id            = *reinterpret_cast<int32_t*>(entry + 8);
         out.objType       = objType;
         out.hp            = hp;
         out.maxHp         = maxHp;
-        out.x             = *reinterpret_cast<float*>(ent + kOffPosX);
-        out.y             = *reinterpret_cast<float*>(ent + kOffPosY);
+        out.x             = ex2;
+        out.y             = ey2;
         out.isInvulnerable = isInvuln;
         out.hasHealthBar  = (noHB == 0);
         out.ptr           = entity;
