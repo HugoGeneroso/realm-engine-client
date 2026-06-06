@@ -168,7 +168,7 @@ SensorSnapshot Build(float playerX, float playerY, const Settings& settings)
         if (!p.valid) continue;
         if (localId != 0 && p.attackerObjId == localId) continue;
         if (localId != 0 && static_cast<int32_t>(p.ownerObjId) == localId) continue;
-        if (!p.canHitPlayer && !IsEnemyOwnedProjectile(p, enemyIds)) continue;
+        if (!p.canHitPlayer && p.attackerObjId == 0 && static_cast<int32_t>(p.ownerObjId) == 0) continue;
         if (!IsFinitePoint(p.x, p.y)) continue;
         if (DistSq(p.x, p.y, playerX, playerY) > cullSq) continue;
         if (out.threatCount >= kMaxThreats) {

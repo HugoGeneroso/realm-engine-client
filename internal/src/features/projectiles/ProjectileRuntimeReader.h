@@ -14,4 +14,5 @@ namespace ProjectileRuntimeReader {
     bool TryReadRuntimeChebyshevHalf(void* projectilePtr, float& outHalf);
     bool ApplyProperties(WorldProjectile& dst, void* projectilePtr, void* projProps,
                          ProjectileCollisionFallback collisionFallback);
+    bool TryReadLiveDamage(void* projectilePtr, int32_t& outDamage);
 }

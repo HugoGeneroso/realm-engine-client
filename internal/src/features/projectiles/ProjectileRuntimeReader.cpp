@@ -83,6 +83,25 @@ bool TryReadRuntimeChebyshevHalf(void* projectilePtr, float& outHalf)
     return false;
 }
 
+bool TryReadLiveDamage(void* projectilePtr, int32_t& outDamage)
+{
+    outDamage = 0;
+    if (!AddrOk(projectilePtr)) return false;
+    __try {
+        // HBEAKBIHANL.DBNNDLKNECM — per-instance damage Int32 (confirmed correct field).
+        // Read live at draw time; the game populates it shortly after spawn.
+        int32_t dmg = *reinterpret_cast<int32_t*>(
+            reinterpret_cast<uint8_t*>(projectilePtr) + RuntimeOffsets::Hbeak_InstanceDamage);
+        if (dmg > 0 && dmg < 1000000) {
+            outDamage = dmg;
+            return true;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+    return false;
+}
+
 bool ApplyProperties(WorldProjectile& dst, void* projectilePtr, void* projProps,
                      ProjectileCollisionFallback collisionFallback)
 {
@@ -99,8 +118,19 @@ bool ApplyProperties(WorldProjectile& dst, void* projectilePtr, void* projProps,
         dst.parametric = *reinterpret_cast<bool*>(props + RuntimeOffsets::PP_IsParametric);
         dst.frequency = *reinterpret_cast<float*>(props + RuntimeOffsets::PP_Frequency);
         dst.amplitude = *reinterpret_cast<float*>(props + RuntimeOffsets::PP_Amplitude);
-        dst.minDamage = *reinterpret_cast<int32_t*>(props + RuntimeOffsets::PP_MinDamage);
-        dst.damage = *reinterpret_cast<int32_t*>(props + RuntimeOffsets::PP_MaxDamage);
+        // Damage: HBEAKBIHANL.DBNNDLKNECM (per-instance). May still be 0 at spawn
+        // time; the authoritative value is refreshed live at draw time via
+        // TryReadLiveDamage (see ProjectileStore::FillOutFromSlot).
+        dst.damage = 0;
+        dst.minDamage = 0;
+        if (AddrOk(projectilePtr)) {
+            int32_t instDamage = *reinterpret_cast<int32_t*>(
+                reinterpret_cast<uint8_t*>(projectilePtr) + RuntimeOffsets::Hbeak_InstanceDamage);
+            if (instDamage > 0) {
+                dst.damage = instDamage;
+                dst.minDamage = instDamage;
+            }
+        }
         dst.isAccelerating = *reinterpret_cast<bool*>(props + RuntimeOffsets::PP_IsAccel);
         dst.useAccel = *reinterpret_cast<bool*>(props + RuntimeOffsets::PP_UseAccel);
         dst.acceleration = *reinterpret_cast<float*>(props + RuntimeOffsets::PP_Acceleration);

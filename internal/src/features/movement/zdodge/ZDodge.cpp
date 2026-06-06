@@ -301,7 +301,7 @@ void RenderSettings()
     if (ImGui::SliderFloat("Clearance weight##zdodge", &clearanceWeight, 0.f, 5.f)) SetClearanceWeight(clearanceWeight);
     if (ImGui::SliderFloat("Backpedal penalty##zdodge", &backpedal, 0.f, 10.f)) SetBackpedalPenalty(backpedal);
     if (ImGui::SliderFloat("Enemy no-go radius##zdodge", &enemyAvoidance, 0.f, 3.f)) SetEnemyAvoidanceRadius(enemyAvoidance);
-    if (ImGui::SliderFloat("Damage threshold pct##zdodge", &dmg, 0.f, 1.f)) SetDamageThresholdPct(dmg);
+    if (ImGui::SliderFloat("Damage threshold (0.01=1%)##zdodge", &dmg, 0.f, 1.f, "%.2f")) SetDamageThresholdPct(dmg);
     if (ImGui::Checkbox("Debug overlay##zdodge", &debug)) SetDebugOverlay(debug);
     if (ImGui::Checkbox("Candidate overlay##zdodge", &candidates)) SetCandidateOverlay(candidates);
 }

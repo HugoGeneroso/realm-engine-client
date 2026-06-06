@@ -132,8 +132,6 @@ uint32_t PP_Magnitude       = 0x194;
 uint32_t PP_Frequency       = 0x198;
 uint32_t PP_Amplitude       = 0x19C;
 uint32_t PP_HasCustomAmplitude = 0x1A0;
-uint32_t PP_MinDamage       = 0x1A4;
-uint32_t PP_MaxDamage       = 0x1A8;
 uint32_t PP_CollMult              = 0xC0;
 uint32_t PP_TurnRate              = 0xD4;
 uint32_t PP_TurnRateDelay         = 0xD8;
@@ -351,8 +349,6 @@ static Entry s_entries[] = {
     { "ProjectileProperties", { "Frequency",  "frequency" },         2, 0,     &PP_Frequency,       false },
     { "ProjectileProperties", { "Amplitude",  "amplitude" },         2, 0,     &PP_Amplitude,       false },
     { "ProjectileProperties", { "HasCustomAmplitude","CustomAmplitude","customAmplitude" }, 3, 0, &PP_HasCustomAmplitude, false },
-    { "ProjectileProperties", { "MinDamage",  "minDamage" },         2, 0,     &PP_MinDamage,       false },
-    { "ProjectileProperties", { "MaxDamage",  "maxDamage" },         2, 0,     &PP_MaxDamage,       false },
     { "ProjectileProperties", { "CollisionMult","collisionMult",
                                  "ConditionEffectAmount" },          3, 0,     &PP_CollMult,        false },
     { "ProjectileProperties", { "ProjectileTurnRate", "TurnRate","turnRate"},     3, 0, &PP_TurnRate,        false },

@@ -256,8 +256,6 @@ namespace RuntimeOffsets {
     extern uint32_t PP_Frequency;       // "Frequency"         fallback 0x198
     extern uint32_t PP_Amplitude;       // "Amplitude"         fallback 0x19C
     extern uint32_t PP_HasCustomAmplitude; // "HasCustomAmplitude" fallback 0x1A0 — if true, wavy uses Amplitude/Frequency fields instead of hardcoded π/64
-    extern uint32_t PP_MinDamage;       // "MinDamage"         fallback 0x1A4
-    extern uint32_t PP_MaxDamage;       // "MaxDamage"         fallback 0x1A8
     extern uint32_t PP_CollMult;           // "CollisionMult"              fallback 0xC0
     extern uint32_t PP_TurnRate;           // "ProjectileTurnRate"         fallback 0xD4
     extern uint32_t PP_TurnRateDelay;      // "ProjectileTurnRateDelay"    fallback 0xD8 — seconds; normalize ×1000

@@ -62,6 +62,12 @@ static void FillOutFromSlot(WorldProjectile& dst, const WorldProjectile& src, UL
         float runtimeHalf = 0.f;
         ProjectileRuntimeReader::TryReadRuntimeChebyshevHalf(src.ptr, runtimeHalf);
         dst.runtimeChebyshevHalf = (runtimeHalf > 1e-5f) ? runtimeHalf : src.runtimeChebyshevHalf;
+
+        int32_t liveDamage = 0;
+        if (ProjectileRuntimeReader::TryReadLiveDamage(src.ptr, liveDamage)) {
+            dst.damage = liveDamage;
+            if (dst.minDamage <= 0 || dst.minDamage > liveDamage) dst.minDamage = liveDamage;
+        }
     }
 
     const float elapsed = static_cast<float>(now - src.spawnTick);
