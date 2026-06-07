@@ -157,10 +157,12 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
   let activeSettingsTab = localStorage.getItem('activeSettingsTab') || 'visual';
   let snifferExpanded = false;
   let snifferPacketsSinceCollapse = 0;
-  let accessToken = localStorage.getItem('accessToken') || null;
-  let refreshToken = localStorage.getItem('refreshToken') || null;
-  let dashboardUser = null;
-  let dashboardLoggedIn = false;
+  // Open source: no RealmEngine account/login. Treat the dashboard as an
+  // always-signed-in local admin so every feature is available.
+  let accessToken = null;
+  let refreshToken = null;
+  let dashboardUser = { id: 'local', email: '', is_admin: true };
+  let dashboardLoggedIn = true;
   /** Plan name for sidebar + settings (from /api/payments/subscription plan_name, else Free) */
   let dashboardSubscriptionTier = 'Free';
   /** Active plan names received from the server (normalized lowercase, e.g. {'dodge', 'developer'}). */
@@ -2911,15 +2913,13 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
 
   var splashDismissed = false;
   function updateDashboardAvailabilityUi() {
-    // Don't show/hide login overlay while splash is still covering the screen
+    // Open source: login removed — the sign-in overlay never gates the dashboard.
     if (!splashDismissed && document.getElementById('app-splash')) return;
-    if (disconnectOverlay) disconnectOverlay.classList.toggle('hidden', dashboardLoggedIn);
-    if (!dashboardLoggedIn) closeSettingsPopout();
+    if (disconnectOverlay) disconnectOverlay.classList.add('hidden');
     var titlebar = document.getElementById('titlebar');
-    if (titlebar) titlebar.style.display = dashboardLoggedIn ? '' : 'none';
-    // Hide settings cog when not logged in
+    if (titlebar) titlebar.style.display = '';
     var settingsBtn = document.getElementById('btn-settings');
-    if (settingsBtn) settingsBtn.style.display = dashboardLoggedIn ? '' : 'none';
+    if (settingsBtn) settingsBtn.style.display = '';
   }
 
   function formatHomeDuration(ms) {
