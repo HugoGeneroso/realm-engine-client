@@ -1,7 +1,6 @@
 import { readdirSync, existsSync } from 'fs';
 import { join, basename, resolve, relative } from 'path';
 import { pathToFileURL } from 'url';
-import { createDecipheriv, createHash, createPublicKey, verify } from 'crypto';
 import { PluginContext, type PluginCategory } from './PluginContext.js';
 import { UserPluginContext, type UserPluginCleanup } from './UserPluginContext.js';
 import type { Proxy } from '../proxy/Proxy.js';
@@ -11,31 +10,6 @@ import type { GameWorldState } from '../state/GameWorldState.js';
 import type { ProjectileTracker } from '../state/ProjectileTracker.js';
 import { Logger } from '../util/Logger.js';
 import { sendDllFeature } from '../bridge/DllFeatureBus.js';
-
-declare const __PLUGIN_BUNDLE_SIGNING_PUBLIC_KEY__: string | undefined;
-declare const __PLUGIN_BUNDLE_ENC_KEY__: string | undefined;
-
-const IS_PROD = process.env.REALM_ENGINE_PROD === '1';
-
-function getSigningPublicKeyPem(): string {
-  try {
-    return String(typeof __PLUGIN_BUNDLE_SIGNING_PUBLIC_KEY__ !== 'undefined' ? __PLUGIN_BUNDLE_SIGNING_PUBLIC_KEY__ : '').trim();
-  } catch {
-    return '';
-  }
-}
-
-function getBundleEncKeyHex(): string {
-  try {
-    return String(typeof __PLUGIN_BUNDLE_ENC_KEY__ !== 'undefined' ? __PLUGIN_BUNDLE_ENC_KEY__ : '').trim();
-  } catch {
-    return '';
-  }
-}
-
-function isHexKey32(v: string): boolean {
-  return /^[0-9a-fA-F]{64}$/.test(v);
-}
 
 /**
  * Where a loaded plugin's code came from.
@@ -152,29 +126,6 @@ function normalizeHotkey(raw: unknown): string | null {
 
   const orderedModifiers = ['Ctrl', 'Alt', 'Shift'].filter((modifier) => modifiers.has(modifier));
   return [...orderedModifiers, mainKey].join('+');
-}
-
-interface SecurePluginRecord {
-  id: string;
-  alg: 'aes-256-gcm';
-  ivB64: string;
-  tagB64: string;
-  ciphertextB64: string;
-  sha256: string;
-}
-
-interface SecureBundlePayload {
-  version: number;
-  protocol: 'plugin-bundle-v1';
-  generatedAt: string;
-  plugins: SecurePluginRecord[];
-}
-
-interface SecureBundleEnvelope {
-  version: number;
-  sigAlg: 'ed25519';
-  payloadB64: string;
-  signatureB64: string;
 }
 
 /**
@@ -576,199 +527,6 @@ export class PluginManager {
     this.proxy.unhookPlugin(pluginId);
     this.loadedPlugins.delete(pluginId);
     Logger.log('PluginManager', `Unloaded plugin: ${plugin.name}`);
-  }
-
-  private parseSecureBundle(input: unknown): SecureBundleEnvelope | null {
-    if (!input || typeof input !== 'object') return null;
-    const b = input as Record<string, unknown>;
-    if (b.version !== 1 || b.sigAlg !== 'ed25519') return null;
-    if (typeof b.payloadB64 !== 'string' || typeof b.signatureB64 !== 'string') return null;
-    return {
-      version: 1,
-      sigAlg: 'ed25519',
-      payloadB64: b.payloadB64,
-      signatureB64: b.signatureB64,
-    };
-  }
-
-  private verifyBundleSignature(bundle: SecureBundleEnvelope): SecureBundlePayload | null {
-    const pubPem = getSigningPublicKeyPem();
-    if (!pubPem) {
-      Logger.warn('PluginManager', 'Missing plugin bundle signing public key.');
-      return null;
-    }
-    let payloadRaw: Buffer;
-    let signature: Buffer;
-    try {
-      payloadRaw = Buffer.from(bundle.payloadB64, 'base64');
-      signature = Buffer.from(bundle.signatureB64, 'base64');
-    } catch {
-      return null;
-    }
-
-    try {
-      const key = createPublicKey(pubPem);
-      const ok = verify(null, Buffer.from(bundle.payloadB64, 'utf8'), key, signature);
-      if (!ok) {
-        Logger.warn('PluginManager', 'Plugin bundle signature verification failed.');
-        return null;
-      }
-    } catch (err) {
-      Logger.warn('PluginManager', `Plugin signature verification error: ${(err as Error).message}`);
-      return null;
-    }
-
-    let payload: unknown;
-    try {
-      payload = JSON.parse(payloadRaw.toString('utf8'));
-    } catch {
-      return null;
-    }
-    const p = payload as Partial<SecureBundlePayload>;
-    if (p?.version !== 1 || p?.protocol !== 'plugin-bundle-v1' || !Array.isArray(p.plugins)) return null;
-    return p as SecureBundlePayload;
-  }
-
-  private decryptPluginCode(record: SecurePluginRecord): string | null {
-    const keyHex = getBundleEncKeyHex();
-    if (!isHexKey32(keyHex)) {
-      Logger.warn('PluginManager', 'Missing/invalid plugin bundle encryption key.');
-      return null;
-    }
-    if (record.alg !== 'aes-256-gcm') return null;
-    try {
-      const key = Buffer.from(keyHex, 'hex');
-      const iv = Buffer.from(record.ivB64, 'base64');
-      const tag = Buffer.from(record.tagB64, 'base64');
-      const cipherText = Buffer.from(record.ciphertextB64, 'base64');
-      const decipher = createDecipheriv('aes-256-gcm', key, iv);
-      decipher.setAuthTag(tag);
-      const plain = Buffer.concat([decipher.update(cipherText), decipher.final()]);
-      const code = plain.toString('utf8');
-      const digest = createHash('sha256').update(code).digest('hex');
-      if (digest.toLowerCase() !== String(record.sha256 || '').toLowerCase()) {
-        Logger.warn('PluginManager', `Plugin hash mismatch for ${record.id}`);
-        return null;
-      }
-      return code;
-    } catch (err) {
-      Logger.warn('PluginManager', `Plugin decrypt failed for ${record.id}: ${(err as Error).message}`);
-      return null;
-    }
-  }
-
-  // ── Remote plugin loading (in-memory only, never touches disk) ─────────
-
-  /**
-   * Load a plugin from raw JS source code (fetched from the API).
-   * Uses a data: URL import so the code lives only in memory.
-   */
-  async loadPluginFromCode(id: string, code: string): Promise<void> {
-    try {
-      if (this.loadedPlugins.has(id)) {
-        await this.unloadPlugin(id);
-      }
-
-      // Import via data: URL — ESM module loaded entirely from memory
-      const dataUrl = 'data:text/javascript;base64,' + Buffer.from(code).toString('base64');
-      const module = await import(dataUrl);
-
-      if (typeof module.register !== 'function') {
-        Logger.warn('PluginManager', `Remote plugin ${id} has no register() export, skipping`);
-        return;
-      }
-
-      const context = new PluginContext(
-        this.proxy,
-        id,
-        `remote:${id}`,
-        this.gameData,
-        this.worldState,
-        this.projectileTracker,
-        this.sessionStateResolver,
-      );
-      context.onDashboardLog = (pluginName, message) => {
-        for (const listener of this.dashboardLogListeners) {
-          try { listener(pluginName, message); } catch {}
-        }
-      };
-      context.onBroadcastData = (pluginId, type, data) => {
-        for (const listener of this.broadcastDataListeners) {
-          try { listener(pluginId, type, data); } catch {}
-        }
-      };
-      module.register(context);
-
-      this.loadedPlugins.set(id, {
-        id,
-        name: context.name || id,
-        filePath: `remote:${id}`,
-        source: 'bundled',
-        hotkey: '',
-        context,
-        userCleanup: null,
-      });
-
-      Logger.log('PluginManager', `Loaded remote plugin: ${context.name || id}`);
-    } catch (err) {
-      Logger.error('PluginManager', `Failed to load remote plugin ${id}`, err as Error);
-    }
-  }
-
-  /**
-   * Fetch the plugin bundle from the API and load all plugins in-memory.
-   * Called after the user logs in.
-   */
-  async loadFromApi(apiBaseUrl: string, accessToken: string): Promise<number> {
-    try {
-      const res = await fetch(`${apiBaseUrl}/api/plugins/bundle`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` },
-      });
-
-      if (!res.ok) {
-        Logger.warn('PluginManager', `Plugin bundle fetch failed: HTTP ${res.status}`);
-        return 0;
-      }
-
-      const data = await res.json() as { bundle?: unknown; plugins?: Array<{ id: string; code: string }> };
-
-      // Secure bundle path (required in production).
-      const secureBundle = this.parseSecureBundle(data.bundle);
-      if (secureBundle) {
-        const payload = this.verifyBundleSignature(secureBundle);
-        if (!payload) {
-          Logger.warn('PluginManager', 'Secure plugin bundle rejected.');
-          return 0;
-        }
-        let loaded = 0;
-        for (const plugin of payload.plugins) {
-          const code = this.decryptPluginCode(plugin);
-          if (!code) continue;
-          await this.loadPluginFromCode(plugin.id, code);
-          loaded++;
-        }
-        Logger.log('PluginManager', `Loaded ${loaded} signed+encrypted plugins from API`);
-        return loaded;
-      }
-
-      // Legacy plaintext fallback (dev only).
-      if (IS_PROD) {
-        Logger.warn('PluginManager', 'Unsigned plugin bundle blocked in production.');
-        return 0;
-      }
-      if (!data.plugins || !Array.isArray(data.plugins)) {
-        Logger.warn('PluginManager', 'Plugin bundle response invalid');
-        return 0;
-      }
-      for (const plugin of data.plugins) {
-        await this.loadPluginFromCode(plugin.id, plugin.code);
-      }
-      Logger.log('PluginManager', `Loaded ${data.plugins.length} legacy plugins from API`);
-      return data.plugins.length;
-    } catch (err) {
-      Logger.error('PluginManager', 'Failed to fetch plugin bundle', err as Error);
-      return 0;
-    }
   }
 
   /** Start watching plugin directories for changes (hot-reload). */
