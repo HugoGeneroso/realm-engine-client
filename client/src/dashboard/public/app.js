@@ -2665,26 +2665,6 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
       });
   }
 
-  function readAuthResponse(r, fallback) {
-    return r.text().then(function (text) {
-      var data = {};
-      try {
-        data = text ? JSON.parse(text) : {};
-      } catch (_e) {
-        data = {};
-      }
-      if (!r.ok) throw new Error(authErrorDetail(data, fallback || ('Auth request failed with HTTP ' + r.status + '.')));
-      return data;
-    });
-  }
-
-  function authDisplayError(err, fallback) {
-    var msg = err && err.message ? String(err.message) : '';
-    if (/failed to fetch|networkerror|load failed/i.test(msg)) {
-      return 'Could not reach the local dashboard server. Restart dev mode and try again.';
-    }
-    return msg || fallback || 'Auth request failed.';
-  }
 
   function tryRefreshToken() {
     if (!refreshToken) return Promise.resolve(false);
@@ -2851,18 +2831,6 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
     }
   }
 
-  function setOverlayAuthMode(mode) {
-    if (!disconnectOverlay) return;
-    disconnectOverlay.setAttribute('data-mode', mode === 'register' ? 'register' : 'signin');
-    var sub = document.getElementById('disconnect-auth-subtitle');
-    if (sub) sub.textContent = mode === 'register' ? 'Create a Realm Engine account' : 'Sign in to your Realm Engine account';
-    var notice = document.getElementById('disconnect-auth-notice');
-    if (notice) notice.textContent = mode === 'register'
-      ? 'Do not use your Realm password. Create a new password for Realm Engine.'
-      : 'This is not your Realm account. Use the credentials you created for Realm Engine.';
-    setOverlayLoginError('');
-    resetOverlayPasswordVisibility();
-  }
 
   function openDashboardTab(tabName) {
     var btn = document.querySelector('.content-tab[data-tab="' + String(tabName) + '"]');
@@ -2871,11 +2839,6 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
     if (btn.classList.contains('dev-only') && !devMode) return;
     btn.click();
   }
-
-  /**
-   * Fire an anonymous product-analytics event. Forwarded to bot-api by DevServer
-   * — the browser never holds the access token. Safe to no-op when WS is down.
-   */
 
   var splashDismissed = false;
   function updateDashboardAvailabilityUi() {
