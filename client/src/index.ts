@@ -60,8 +60,8 @@ import { GameWorldState } from './state/GameWorldState.js';
 import { ProjectileTracker } from './state/ProjectileTracker.js';
 import { GameDataLoader } from './game-data/GameDataLoader.js';
 import { PluginManager } from './plugins/PluginManager.js';
-import { PacketInspector } from './dev/server/PacketInspector.js';
-import { DevServer } from './dev/server/DevServer.js';
+import { PacketInspector } from './dashboard/server/PacketInspector.js';
+import { DevServer } from './dashboard/server/DevServer.js';
 import { GameHooker } from './hooker/GameHooker.js';
 import { InternalBridge } from './bridge/InternalBridge.js';
 import { setDllFeatureSender } from './bridge/DllFeatureBus.js';
@@ -155,7 +155,7 @@ function loadClientDataConfig(): ClientDataConfig {
 }
 
 async function main() {
-  const devMode = process.argv.includes('--dev') || true; // Default to dev mode for now
+  const devMode = true; // Dashboard always runs — there is no headless mode.
 
   Logger.log('Main', 'RotMG MITM Proxy starting...');
 
@@ -457,7 +457,7 @@ async function main() {
 
     const bridgeClientRef: BridgeClientRef = { current: undefined };
 
-    const publicDir = resolve(ROOT, 'src', 'dev', 'public');
+    const publicDir = resolve(ROOT, 'src', 'dashboard', 'public');
     // Latest's DevServer derives configPath/ROOT internally from publicDir.
     devServer = new DevServer(inspector, pluginManager, publicDir, worldState, gameData);
     devServer.setDetectedGamePath(hooker.gameDirectory);

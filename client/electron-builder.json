@@ -31,7 +31,7 @@
       ]
     },
     { "from": "assets", "to": "assets" },
-    { "from": "dist/public", "to": "src/dev/public" },
+    { "from": "dist/public", "to": "src/dashboard/public" },
     { "from": "packages/sdk", "to": "sdk" }
   ],
   "asar": true,

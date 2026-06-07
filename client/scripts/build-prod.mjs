@@ -354,8 +354,8 @@ log('Plugins obfuscated');
 
 // ── Step 6b: Strip admin features from dashboard (user builds only) ──────────
 
-// Copy src/dev/public → dist/public (staging copy — never modify source)
-const PUBLIC_SRC = join(ROOT, 'src', 'dev', 'public');
+// Copy src/dashboard/public → dist/public (staging copy — never modify source)
+const PUBLIC_SRC = join(ROOT, 'src', 'dashboard', 'public');
 const PUBLIC_DIST = join(DIST, 'public');
 mkdirSync(PUBLIC_DIST, { recursive: true });
 for (const f of readdirSync(PUBLIC_SRC)) {
