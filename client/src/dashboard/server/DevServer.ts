@@ -133,6 +133,16 @@ import {
   type ClientRole,
 } from '../process/exaltClientRoles.js';
 import { isThermalBackgroundDemotionActive } from '../process/thermalStressLayer.js';
+import {
+  formatObjectTypeHex,
+  parseCharListNumber,
+  parseCharListBoolean,
+  parseCharListObjectTypes,
+  parseDashboardEquipmentTokens,
+  buildDashboardUniqueItemLookup,
+  decodeDashboardEnchantIds,
+  type DashboardAccountEquipmentToken,
+} from './charListParsers.js';
 
 /** `taskkill /IM msedge.exe /F /T` — frees RAM from stray Edge renderer processes (Windows only). */
 function killMicrosoftEdgeProcessesBestEffort(): {
@@ -285,11 +295,6 @@ interface DashboardAccountOverviewItem {
   name: string;
   uniqueId: string | null;
   enchantIds: number[];
-}
-
-interface DashboardAccountEquipmentToken {
-  objectType: number;
-  uniqueId: string | null;
 }
 
 interface DashboardAccountOverviewCharacter {
@@ -710,11 +715,6 @@ export class DevServer {
     }
   }
 
-  private formatObjectTypeHex(objectType: number): string {
-    const safeType = Number.isFinite(objectType) ? Math.max(0, Math.trunc(objectType)) : 0;
-    return `0x${safeType.toString(16)}`;
-  }
-
   private getObjectDisplayName(objectType: number): string {
     if (!Number.isFinite(objectType) || objectType < 0) return 'Empty';
     const def = this.gameData?.getObject(objectType);
@@ -736,11 +736,11 @@ export class DevServer {
       const encoded = exactBucket?.length
         ? String(exactBucket.shift() || '').trim()
         : (fallbackBucket?.length ? String(fallbackBucket.shift() || '').trim() : '');
-      enchantIds = this.decodeDashboardEnchantIds(encoded);
+      enchantIds = decodeDashboardEnchantIds(encoded);
     }
     return {
       objectType,
-      objectTypeHex: this.formatObjectTypeHex(objectType),
+      objectTypeHex: formatObjectTypeHex(objectType),
       name: this.getObjectDisplayName(objectType),
       uniqueId: token.uniqueId,
       enchantIds,
@@ -793,93 +793,6 @@ export class DevServer {
     const uptimeMs = Math.max(0, now - this.sessionStartedAt);
     const averageFpm = uptimeMs > 0 ? (fameGained / (uptimeMs / 60000)) : 0;
     return { uptimeMs, fameGained, averageFpm };
-  }
-
-  private parseCharListNumber(raw: unknown): number {
-    const value = Number(raw);
-    return Number.isFinite(value) ? value : 0;
-  }
-
-  private parseCharListBoolean(raw: unknown): boolean {
-    const value = String(raw ?? '').trim().toLowerCase();
-    return value === '1' || value === 'true';
-  }
-
-  private parseCharListObjectTypes(raw: unknown, minimumLength = 0): number[] {
-    const parsed = String(raw ?? '')
-      .split(',')
-      .map((value) => {
-        const n = Number.parseInt(String(value ?? '').trim(), 10);
-        return Number.isFinite(n) ? n : -1;
-      });
-    while (parsed.length < minimumLength) parsed.push(-1);
-    return parsed;
-  }
-
-  private parseDashboardEquipmentTokens(raw: unknown, minimumLength = 0): DashboardAccountEquipmentToken[] {
-    const parsed = String(raw ?? '')
-      .split(',')
-      .map((value) => String(value ?? '').trim())
-      .filter(Boolean)
-      .map((value) => {
-        const hashIndex = value.indexOf('#');
-        const objectTypeText = hashIndex >= 0 ? value.slice(0, hashIndex).trim() : value;
-        const uniqueIdText = hashIndex >= 0 ? value.slice(hashIndex + 1).trim() : '';
-        const objectType = Number.parseInt(objectTypeText, 10);
-        return {
-          objectType: Number.isFinite(objectType) ? objectType : -1,
-          uniqueId: uniqueIdText || null,
-        } satisfies DashboardAccountEquipmentToken;
-      });
-    while (parsed.length < minimumLength) {
-      parsed.push({ objectType: -1, uniqueId: null });
-    }
-    return parsed;
-  }
-
-  private buildDashboardUniqueItemLookup(rawUniqueItemInfo: unknown): Map<string, string[]> {
-    const lookup = new Map<string, string[]>();
-    const uniqueNode = rawUniqueItemInfo && typeof rawUniqueItemInfo === 'object'
-      ? rawUniqueItemInfo as Record<string, unknown>
-      : null;
-    const rawItemData = uniqueNode?.ItemData;
-    const entries = Array.isArray(rawItemData) ? rawItemData : (rawItemData ? [rawItemData] : []);
-    for (const entry of entries) {
-      if (!entry || typeof entry !== 'object') continue;
-      const node = entry as Record<string, unknown>;
-      const objectType = Number.parseInt(String(node['@_type'] ?? '').trim(), 10);
-      if (!Number.isFinite(objectType)) continue;
-      const uniqueId = String(node['@_id'] ?? '').trim();
-      const encoded = String(node['#text'] ?? '').trim();
-      if (!encoded) continue;
-      const key = `${objectType}#${uniqueId}`;
-      const bucket = lookup.get(key);
-      if (bucket) bucket.push(encoded);
-      else lookup.set(key, [encoded]);
-    }
-    return lookup;
-  }
-
-  private decodeDashboardEnchantIds(code: string | null | undefined): number[] {
-    const rawCode = String(code || '').trim();
-    if (!rawCode) return [];
-    try {
-      const normalized = rawCode
-        .replace(/-/g, '+')
-        .replace(/_/g, '/')
-        .padEnd(Math.ceil(rawCode.length / 4) * 4, '=');
-      const bytes = Buffer.from(normalized, 'base64');
-      if (bytes.length <= 3) return [];
-      const enchantIds: number[] = [];
-      for (let pos = 3; pos + 1 < bytes.length; pos += 2) {
-        const value = bytes.readUInt16LE(pos);
-        if (value === 0xfffd) break;
-        enchantIds.push(value === 0xfffe ? 0 : value);
-      }
-      return enchantIds;
-    } catch {
-      return [];
-    }
   }
 
   private buildDashboardOverviewItems(
@@ -1009,9 +922,9 @@ export class DevServer {
 
       const accountNode = (charsNode.Account ?? {}) as Record<string, unknown>;
       const accountStats = (accountNode.Stats ?? {}) as Record<string, unknown>;
-      const accountUniqueLookup = this.buildDashboardUniqueItemLookup(accountNode.UniqueItemInfo);
-      const giftUniqueLookup = this.buildDashboardUniqueItemLookup((charsNode as Record<string, unknown>).UniqueGiftItemInfo ?? accountNode.UniqueGiftItemInfo);
-      const temporaryGiftUniqueLookup = this.buildDashboardUniqueItemLookup((charsNode as Record<string, unknown>).UniqueTemporaryGiftItemInfo ?? accountNode.UniqueTemporaryGiftItemInfo);
+      const accountUniqueLookup = buildDashboardUniqueItemLookup(accountNode.UniqueItemInfo);
+      const giftUniqueLookup = buildDashboardUniqueItemLookup((charsNode as Record<string, unknown>).UniqueGiftItemInfo ?? accountNode.UniqueGiftItemInfo);
+      const temporaryGiftUniqueLookup = buildDashboardUniqueItemLookup((charsNode as Record<string, unknown>).UniqueTemporaryGiftItemInfo ?? accountNode.UniqueTemporaryGiftItemInfo);
       const vaultChestNodes = Array.isArray((accountNode.Vault as Record<string, unknown> | undefined)?.Chest)
         ? ((accountNode.Vault as Record<string, unknown>).Chest as unknown[])
         : ((accountNode.Vault as Record<string, unknown> | undefined)?.Chest ? [(accountNode.Vault as Record<string, unknown>).Chest] : []);
@@ -1022,34 +935,34 @@ export class DevServer {
         ? charsNode.Char
         : (charsNode.Char ? [charsNode.Char] : []);
       const characters = rawCharacters.map((rawChar) => {
-        const classType = this.parseCharListNumber(rawChar.ObjectType);
-        const uniqueLookup = this.buildDashboardUniqueItemLookup(rawChar.UniqueItemInfo);
-        const backpackSlots = Math.max(0, this.parseCharListNumber(rawChar.BackpackSlots));
+        const classType = parseCharListNumber(rawChar.ObjectType);
+        const uniqueLookup = buildDashboardUniqueItemLookup(rawChar.UniqueItemInfo);
+        const backpackSlots = Math.max(0, parseCharListNumber(rawChar.BackpackSlots));
         const backpackCount = Math.max(0, Math.min(8, Math.floor(backpackSlots / 8)));
-        const allTokens = this.parseDashboardEquipmentTokens(rawChar.Equipment, 12 + (backpackCount * 8));
+        const allTokens = parseDashboardEquipmentTokens(rawChar.Equipment, 12 + (backpackCount * 8));
         const equipmentTokens = allTokens.slice(0, 4);
         const inventoryTokens = allTokens.slice(4, 12);
         const backpackTokens = allTokens.slice(12);
         return {
-          charId: this.parseCharListNumber(rawChar['@_id']),
+          charId: parseCharListNumber(rawChar['@_id']),
           classType,
-          classTypeHex: this.formatObjectTypeHex(classType),
+          classTypeHex: formatObjectTypeHex(classType),
           className: this.getObjectDisplayName(classType),
-          level: this.parseCharListNumber(rawChar.Level),
-          exp: this.parseCharListNumber(rawChar.Exp),
-          fame: this.parseCharListNumber(rawChar.CurrentFame),
-          seasonal: this.parseCharListBoolean(rawChar.Seasonal),
-          dead: this.parseCharListBoolean(rawChar.Dead),
-          hp: this.parseCharListNumber(rawChar.HitPoints),
-          maxHp: this.parseCharListNumber(rawChar.MaxHitPoints),
-          mp: this.parseCharListNumber(rawChar.MagicPoints),
-          maxMp: this.parseCharListNumber(rawChar.MaxMagicPoints),
-          attack: this.parseCharListNumber(rawChar.Attack),
-          defense: this.parseCharListNumber(rawChar.Defense),
-          speed: this.parseCharListNumber(rawChar.Speed),
-          dexterity: this.parseCharListNumber(rawChar.Dexterity),
-          vitality: this.parseCharListNumber(rawChar.HpRegen),
-          wisdom: this.parseCharListNumber(rawChar.MpRegen),
+          level: parseCharListNumber(rawChar.Level),
+          exp: parseCharListNumber(rawChar.Exp),
+          fame: parseCharListNumber(rawChar.CurrentFame),
+          seasonal: parseCharListBoolean(rawChar.Seasonal),
+          dead: parseCharListBoolean(rawChar.Dead),
+          hp: parseCharListNumber(rawChar.HitPoints),
+          maxHp: parseCharListNumber(rawChar.MaxHitPoints),
+          mp: parseCharListNumber(rawChar.MagicPoints),
+          maxMp: parseCharListNumber(rawChar.MaxMagicPoints),
+          attack: parseCharListNumber(rawChar.Attack),
+          defense: parseCharListNumber(rawChar.Defense),
+          speed: parseCharListNumber(rawChar.Speed),
+          dexterity: parseCharListNumber(rawChar.Dexterity),
+          vitality: parseCharListNumber(rawChar.HpRegen),
+          wisdom: parseCharListNumber(rawChar.MpRegen),
           equipment: this.buildDashboardOverviewItems(equipmentTokens, uniqueLookup, true),
           inventory: this.buildDashboardOverviewItems(inventoryTokens, uniqueLookup, true),
           backpacks: this.buildDashboardOverviewItems(backpackTokens, uniqueLookup, true),
@@ -1061,16 +974,16 @@ export class DevServer {
 
       return {
         accountName: String(accountNode.Name || '').trim() || email,
-        totalFame: this.parseCharListNumber(accountStats.TotalFame),
-        aliveFame: this.parseCharListNumber(accountStats.Fame),
-        bestCharFame: this.parseCharListNumber(accountStats.BestCharFame ?? accountStats.BestFame),
-        maxNumChars: this.parseCharListNumber(accountNode.MaxNumChars),
+        totalFame: parseCharListNumber(accountStats.TotalFame),
+        aliveFame: parseCharListNumber(accountStats.Fame),
+        bestCharFame: parseCharListNumber(accountStats.BestCharFame ?? accountStats.BestFame),
+        maxNumChars: parseCharListNumber(accountNode.MaxNumChars),
         characters,
-        vault: this.buildDashboardStorageSection(vaultChestNodes.map((value) => this.parseDashboardEquipmentTokens(value, 0)), accountUniqueLookup),
-        gifts: this.buildDashboardStorageSection([this.parseDashboardEquipmentTokens(accountNode.Gifts, 0)], giftUniqueLookup),
-        temporaryGifts: this.buildDashboardStorageSection([this.parseDashboardEquipmentTokens(accountNode.TemporaryGifts, 0)], temporaryGiftUniqueLookup),
-        materialStorage: this.buildDashboardStorageSection(materialChestNodes.map((value) => this.parseDashboardEquipmentTokens(value, 0)), accountUniqueLookup),
-        potions: this.buildDashboardStorageSection([this.parseDashboardEquipmentTokens(accountNode.Potions, 0)], accountUniqueLookup),
+        vault: this.buildDashboardStorageSection(vaultChestNodes.map((value) => parseDashboardEquipmentTokens(value, 0)), accountUniqueLookup),
+        gifts: this.buildDashboardStorageSection([parseDashboardEquipmentTokens(accountNode.Gifts, 0)], giftUniqueLookup),
+        temporaryGifts: this.buildDashboardStorageSection([parseDashboardEquipmentTokens(accountNode.TemporaryGifts, 0)], temporaryGiftUniqueLookup),
+        materialStorage: this.buildDashboardStorageSection(materialChestNodes.map((value) => parseDashboardEquipmentTokens(value, 0)), accountUniqueLookup),
+        potions: this.buildDashboardStorageSection([parseDashboardEquipmentTokens(accountNode.Potions, 0)], accountUniqueLookup),
       };
     } catch (err) {
       Logger.warn('DevServer', `char/list parse failed: ${(err as Error).message}`);
