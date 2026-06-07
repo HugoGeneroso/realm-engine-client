@@ -164,7 +164,6 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
   let dashboardUser = { id: 'local', email: '', is_admin: true };
   let dashboardLoggedIn = true;
   /** Plan name for sidebar + settings (from /api/payments/subscription plan_name, else Free) */
-  let dashboardSubscriptionTier = 'Free';
   /** Active plan names received from the server (normalized lowercase, e.g. {'dodge', 'developer'}). */
   var activePlanNames = new Set();
   /**
@@ -181,7 +180,6 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
     'developer': { plans: ['developer'], isAdmin: false, label: 'Developer user' },
   };
   /** Website for gem purchases & subscriptions (Payment page) */
-  var REALM_ENGINE_WEB_BASE = 'https://rotmg-engine.egtw.org';
 
   // Packet Lab state
   let labUnknowns = [];
@@ -3549,16 +3547,6 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
       if (adminMode && packetSnifferVisible) seedSnifferPacketTypeChipsFromDefs();
       addHomeFeed('ok', 'Dashboard socket connected.');
       try { ws.send(JSON.stringify({ type: 'requestScriptPanelSnapshots' })); } catch (_e) {}
-      // Re-send dashboard tokens so the server-side bot API client stays in sync
-      if (dashboardLoggedIn && accessToken) {
-        ws.send(JSON.stringify({
-          type: 'dashboardToken',
-          access_token: accessToken,
-          refresh_token: refreshToken || null,
-          is_admin: !!(dashboardUser && dashboardUser.is_admin),
-          developer_mode: !!(dashboardUser && dashboardUser.developer_mode),
-        }));
-      }
     };
 
     ws.onclose = () => {
