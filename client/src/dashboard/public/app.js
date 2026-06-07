@@ -755,7 +755,6 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
   const showServerPingToggle = document.getElementById('setting-show-server-ping');
   const showAccountEmailsToggle = document.getElementById('setting-show-account-emails');
   const showSingleAccountDockToggle = document.getElementById('setting-show-single-account-dock');
-  const telemetryEnabledToggle = document.getElementById('setting-telemetry-enabled');
   const nearbyRefreshBtn = document.getElementById('nearby-refresh-btn');
   const nearbySortEl = document.getElementById('nearby-sort');
   const nearbyFilterEl = document.getElementById('nearby-filter');
@@ -1069,7 +1068,6 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
   }
 
   function openPurchaseModal() {
-    trackEvent('gem_buy_open');
     var overlay = document.getElementById('purchase-modal-overlay');
     if (!overlay) { openRealmEnginePaymentPage(); return; }
 
@@ -1257,7 +1255,6 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
   }
 
   function openPlanModal() {
-    trackEvent('plan_modal_open');
     var overlay = document.getElementById('plan-modal-overlay');
     if (!overlay) { openRealmEnginePaymentPage(); return; }
 
@@ -1414,7 +1411,7 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
       if (adminRow) adminRow.classList.toggle('settings-row--locked', false);
     }
     if (!adminMode) {
-      if (activeTab === 'logs' || activeTab === 'packet-lab' || activeTab === 'mem-helper' || activeTab === 'telemetry') {
+      if (activeTab === 'logs' || activeTab === 'packet-lab' || activeTab === 'mem-helper') {
         var fallbackBtn = document.querySelector('.content-tab[data-tab="plugins"]');
         if (fallbackBtn) fallbackBtn.click();
       }
@@ -1831,25 +1828,6 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
     });
   }
 
-  if (telemetryEnabledToggle) {
-    // Fire current state request once the socket is up so the checkbox reflects
-    // server-side config rather than the static HTML default.
-    function _requestTelemetryEnabled() {
-      if (ws && ws.readyState === 1) {
-        ws.send(JSON.stringify({ type: 'getTelemetryEnabled' }));
-      } else {
-        setTimeout(_requestTelemetryEnabled, 500);
-      }
-    }
-    _requestTelemetryEnabled();
-    telemetryEnabledToggle.addEventListener('change', function () {
-      if (!ws || ws.readyState !== 1) return;
-      ws.send(JSON.stringify({
-        type: 'setTelemetryEnabled',
-        enabled: !!telemetryEnabledToggle.checked,
-      }));
-    });
-  }
 
   function getThemeMeta(themeId) {
     var id = String(themeId || '');
@@ -2898,18 +2876,6 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
    * Fire an anonymous product-analytics event. Forwarded to bot-api by DevServer
    * — the browser never holds the access token. Safe to no-op when WS is down.
    */
-  function trackEvent(eventName, props) {
-    if (!ws || ws.readyState !== 1) return;
-    try {
-      ws.send(JSON.stringify({
-        type: 'trackEvent',
-        event: String(eventName || ''),
-        props: props && typeof props === 'object' ? props : undefined,
-      }));
-    } catch (_e) { /* swallow */ }
-  }
-  // Expose for inline handlers + cross-module callers.
-  window._trackEvent = trackEvent;
 
   var splashDismissed = false;
   function updateDashboardAvailabilityUi() {
@@ -9880,8 +9846,6 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
     }
 
     activeTab = tabName;
-    // Track tab view for the funnel breakdown.
-    trackEvent('tab_view', { tab: String(tabName) });
     if (tabName === 'api') {
       requestAnimationFrame(function () {
         var fr = document.querySelector('#tab-api .api-docs-iframe');
@@ -9900,7 +9864,6 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
     if (tabName === 'accounts') renderAccountsTab();
     if (tabName === 'damage') renderDamageTab();
     if (tabName === 'logs') refreshLogsEmptyState();
-    if (tabName === 'telemetry') openTelemetryTab();
     if (tabName === 'objects') renderObjectsTree(lastObjectsData);
     if (tabName === 'tilemap') {
       renderTilemapTree(lastTilesData);
@@ -19244,197 +19207,4 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
 
   connect();
 
-  // ─── Admin Telemetry tab ─────────────────────────────────────────────────
-  var telemetryRefreshTimer = null;
-  var telemetryWindowMinutes = 5;
-  var telemetryPendingKinds = new Set();
-
-  function openTelemetryTab() {
-    if (!adminMode) return;
-    var sel = document.getElementById('telemetry-window-select');
-    if (sel) telemetryWindowMinutes = Number(sel.value || 5) || 5;
-    requestTelemetryRefresh();
-    // Auto-refresh while the tab is open. 30s cadence keeps it lively without
-    // hammering — heartbeats themselves arrive on a 60s cycle.
-    if (telemetryRefreshTimer) clearInterval(telemetryRefreshTimer);
-    telemetryRefreshTimer = setInterval(function () {
-      if (activeTab === 'telemetry') requestTelemetryRefresh();
-    }, 30000);
-  }
-
-  function requestTelemetryRefresh() {
-    if (!ws || ws.readyState !== 1) {
-      setTelemetryStatus('Dashboard offline.', true);
-      return;
-    }
-    setTelemetryStatus('Loading…', false);
-    var kinds = ['overview', 'servers', 'classes', 'plugins', 'settings', 'eventsTop', 'timeline'];
-    telemetryPendingKinds = new Set(kinds);
-    // Buckets: 5m for short windows, 1h for >24h windows.
-    var bucketSeconds = telemetryWindowMinutes >= 1440 ? 3600 : 300;
-    kinds.forEach(function (kind) {
-      var req = {
-        type: 'requestTelemetryStats',
-        kind: kind,
-        window: telemetryWindowMinutes,
-      };
-      if (kind === 'timeline') req.bucket = bucketSeconds;
-      ws.send(JSON.stringify(req));
-    });
-  }
-
-  function setTelemetryStatus(text, isError) {
-    var el = document.getElementById('telemetry-status');
-    if (!el) return;
-    el.textContent = text || '';
-    el.classList.toggle('error', !!isError);
-  }
-
-  function handleTelemetryStats(msg) {
-    if (!msg || !msg.kind || !msg.data) return;
-    if (msg.kind === 'overview') {
-      renderTelemetryOverview(msg.data);
-    } else if (msg.kind === 'servers') {
-      renderTelemetryBreakdown('telemetry-servers-tbody', 'telemetry-servers-empty', msg.data);
-    } else if (msg.kind === 'classes') {
-      renderTelemetryBreakdown('telemetry-classes-tbody', 'telemetry-classes-empty', msg.data);
-    } else if (msg.kind === 'plugins') {
-      renderTelemetryBreakdown('telemetry-plugins-tbody', 'telemetry-plugins-empty', msg.data);
-    } else if (msg.kind === 'eventsTop') {
-      renderTelemetryBreakdown('telemetry-events-tbody', 'telemetry-events-empty', msg.data);
-    } else if (msg.kind === 'settings') {
-      renderTelemetrySettings(msg.data);
-    } else if (msg.kind === 'timeline') {
-      renderTelemetryTimeline(msg.data);
-    }
-    telemetryPendingKinds.delete(msg.kind);
-    if (telemetryPendingKinds.size === 0) {
-      var sampled = msg.data && msg.data.sampled_at ? new Date(msg.data.sampled_at) : new Date();
-      setTelemetryStatus('Updated ' + sampled.toLocaleTimeString(), false);
-    }
-  }
-
-  function renderTelemetrySettings(data) {
-    var tbody = document.getElementById('telemetry-settings-tbody');
-    var empty = document.getElementById('telemetry-settings-empty');
-    if (!tbody) return;
-    var rows = (data && Array.isArray(data.rows)) ? data.rows : [];
-    if (rows.length === 0) {
-      tbody.innerHTML = '';
-      if (empty) empty.style.display = '';
-      return;
-    }
-    if (empty) empty.style.display = 'none';
-    tbody.innerHTML = rows.map(function (r) {
-      return '<tr><td>' + escapeHtml(String(r.key || ''))
-        + '</td><td>' + escapeHtml(String(r.value || ''))
-        + '</td><td class="telemetry-num">' + (Number(r.count) || 0) + '</td></tr>';
-    }).join('');
-  }
-
-  function renderTelemetryTimeline(data) {
-    var svg = document.getElementById('telemetry-sparkline-svg');
-    var meta = document.getElementById('telemetry-sparkline-meta');
-    if (!svg) return;
-    var points = (data && Array.isArray(data.points)) ? data.points : [];
-    if (points.length === 0) {
-      svg.innerHTML = '';
-      if (meta) meta.textContent = 'No data';
-      return;
-    }
-    // Build a polyline + fill path over a 600×60 viewBox.
-    var W = 600, H = 60;
-    var max = 0;
-    for (var i = 0; i < points.length; i++) {
-      if ((points[i].active_users || 0) > max) max = points[i].active_users;
-    }
-    if (max < 1) max = 1;
-    var stepX = W / Math.max(1, points.length - 1);
-    var d = '';
-    for (var j = 0; j < points.length; j++) {
-      var x = j * stepX;
-      var y = H - 2 - ((points[j].active_users || 0) / max) * (H - 4);
-      d += (j === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
-    }
-    // Fill path: extend down to the baseline so the area shades.
-    var fillD = d + 'L' + W + ',' + H + ' L0,' + H + ' Z';
-    svg.innerHTML =
-      '<path class="telemetry-sparkline-path" d="' + fillD + '"></path>';
-    if (meta) {
-      var peak = max;
-      var latest = points[points.length - 1].active_users || 0;
-      var bucket = Math.round((Number(data.bucket_seconds) || 0) / 60);
-      meta.textContent = 'peak ' + peak + ' · now ' + latest + ' · ' + bucket + 'm buckets';
-    }
-  }
-
-  function handleTelemetryStatsError(msg) {
-    var err = msg && msg.error ? String(msg.error) : 'Failed to load telemetry.';
-    setTelemetryStatus(err, true);
-  }
-
-  function renderTelemetryOverview(data) {
-    var setText = function (id, val) {
-      var el = document.getElementById(id);
-      if (el) el.textContent = val == null ? '—' : String(val);
-    };
-    setText('telemetry-active-5m', data.active_5m);
-    setText('telemetry-active-1h', data.active_1h);
-    setText('telemetry-active-24h', data.active_24h);
-    setText('telemetry-free-users', data.free_users);
-    setText('telemetry-paid-users', data.paid_users);
-    var totalUsers = (Number(data.free_users) || 0) + (Number(data.paid_users) || 0);
-    var shareEl = document.getElementById('telemetry-paid-share');
-    if (shareEl) {
-      if (totalUsers > 0) {
-        var pct = Math.round((Number(data.paid_users) / totalUsers) * 100);
-        shareEl.textContent = pct + '% of active';
-      } else {
-        shareEl.textContent = '—';
-      }
-    }
-    var plansTbody = document.getElementById('telemetry-plans-tbody');
-    var plansEmpty = document.getElementById('telemetry-plans-empty');
-    if (plansTbody) {
-      var dist = (data && data.plan_distribution) || {};
-      var entries = Object.keys(dist).map(function (k) { return { key: k, count: Number(dist[k]) || 0 }; });
-      entries.sort(function (a, b) { return b.count - a.count; });
-      plansTbody.innerHTML = entries.map(function (e) {
-        var label = e.key.replace(/^(.)/, function (c) { return c.toUpperCase(); });
-        return '<tr><td>' + escapeHtml(label) + '</td><td class="telemetry-num">' + e.count + '</td></tr>';
-      }).join('');
-      if (plansEmpty) plansEmpty.style.display = entries.length ? 'none' : '';
-    }
-  }
-
-  function renderTelemetryBreakdown(tbodyId, emptyId, data) {
-    var tbody = document.getElementById(tbodyId);
-    var empty = document.getElementById(emptyId);
-    if (!tbody) return;
-    var rows = (data && Array.isArray(data.rows)) ? data.rows : [];
-    if (rows.length === 0) {
-      tbody.innerHTML = '';
-      if (empty) empty.style.display = '';
-      return;
-    }
-    if (empty) empty.style.display = 'none';
-    tbody.innerHTML = rows.map(function (r) {
-      return '<tr><td>' + escapeHtml(String(r.label || r.key || '—'))
-        + '</td><td class="telemetry-num">' + (Number(r.count) || 0) + '</td></tr>';
-    }).join('');
-  }
-
-  var telemetryWindowSelect = document.getElementById('telemetry-window-select');
-  if (telemetryWindowSelect) {
-    telemetryWindowSelect.addEventListener('change', function () {
-      telemetryWindowMinutes = Number(telemetryWindowSelect.value || 5) || 5;
-      if (activeTab === 'telemetry') requestTelemetryRefresh();
-    });
-  }
-  var telemetryRefreshBtn = document.getElementById('telemetry-refresh-btn');
-  if (telemetryRefreshBtn) {
-    telemetryRefreshBtn.addEventListener('click', function () {
-      requestTelemetryRefresh();
-    });
-  }
 })();
