@@ -102,7 +102,7 @@ function calcDamage(
   const normDmg = baseDmg - def;
   let result    = Math.max(minDmg, normDmg);
 
-  result *= int47Thousand / 1000;
+ //result *= int47Thousand / 1000; //Not used
 
   if (invulnerable) return 0;
   if (petrified)    result = Math.floor(result * 0.90);
@@ -118,7 +118,7 @@ function method29BaseRegenPerSec(
   float1HpRegenFromGear = 0,
   int10FlatRegen = 0,
 ): number {
-  return 2 * (1 + 0.12 * vit) + float1HpRegenFromGear * maxHp + int10FlatRegen;
+  return 2 + (0.2407 * vit) + float1HpRegenFromGear * maxHp + int10FlatRegen;
 }
 
 // ── Plugin ───────────────────────────────────────────────────────────────────
@@ -203,10 +203,9 @@ export function register(ctx: PluginContext) {
     const threshold = nexusThresholdPct * 0.01 * state.maxHp;
 
     if (useClientHp) {
-      if (state.clientHp <= threshold) return true;
+      return state.clientHp <= threshold;
     }
-    if (state.serverHp > threshold && state.clientHp > threshold) return false;
-    return true;
+    return state.serverHp <= threshold;
   }
 
   // method_0
@@ -218,8 +217,8 @@ export function register(ctx: PluginContext) {
     ctx.log(`AUTO NEXUS — HP: ${Math.round(state.clientHp)}/${state.maxHp} (${hpPct}%) — ${reason}`);
 
     if (showNotification) {
-      ctx.sendNotification(client, 'AutoNexus',
-        `AutoNexused at ${hpPct}% HP\nSource: ${reason}`);
+        ctx.sendNotification(client, 'AutoNexus',
+        `AutoNexused at ${hpPct}% HP\nHP: ${Math.round(state.clientHp)}/${state.maxHp} | DEF: ${state.defense} | ServerHP: ${state.serverHp}\nSource: ${reason}`);
     }
 
     const escape = ctx.createPacket('ESCAPE');
@@ -285,15 +284,15 @@ export function register(ctx: PluginContext) {
     const inCombat = pd.hasConditionEffect('InCombat') || pd.powerLevel >= 100;
 
     let num2 = method29BaseRegenPerSec(state.vitality, state.maxHp, 0, 0);
-    if (confused) num2 /= 2;
+    //if (confused) num2 /= 2; //This is just not true
 
     if (!sick) {
-      const float3 = 0;
+      const float3 = 20;
       if (healing) state.regenAccum += (float3 + num2) * num;
       else         state.regenAccum += num2 * num;
     }
     if (bleeding) state.regenAccum -= 20 * num;
-    if (inCombat) state.regenAccum -= 96 * num;
+    if (inCombat) state.regenAccum /= 2 * num;
 
     const num4 = Math.trunc(state.regenAccum);
     state.regenAccum -= num4;
@@ -326,9 +325,9 @@ export function register(ctx: PluginContext) {
     if (nexusPrologue(client, state)) { packet.send = false; return; }
     if (state.nexusSent) { packet.send = false; return; }
 
-    state.maxHp    = pd.maxHealth + pd.healthBonus;
-    state.defense  = pd.defense + pd.defenseBonus;
-    state.vitality = pd.vitality + pd.vitalityBonus;
+    state.maxHp    = pd.maxHealth; //Actual Max HP
+    state.defense  = pd.defense; //Actual Def
+    state.vitality = pd.vitality; //Actual Vit
 
     const serverHp = pd.health > 0 ? pd.health : state.maxHp;
 
@@ -355,7 +354,7 @@ export function register(ctx: PluginContext) {
     state.lastSyncTick++;
     state.lastTickTime = Date.now();
 
-    const deltaSec = (packet.data.serverRealTimeMSofLastNewTick as number ?? 200) / 1000;
+    const deltaSec = (packet.data.tickTime as number ?? 200) / 1000;
     regenMethod29(state, pd, deltaSec);
 
     // Autopot (HP + MP) is owned by the auto-drink plugin — see its HP threshold guard.
@@ -465,7 +464,7 @@ export function register(ctx: PluginContext) {
     const key      = `${objectId}:${bulletId}`;
     const bullet   = state.bullets.get(key);
 
-    let baseDmg  = bullet ? bullet.damage : 175;
+    let baseDmg  = bullet ? bullet.damage : 200;
     let piercing = !bullet;
 
     if (bullet && ctx.gameData && ctx.worldState) {
@@ -498,6 +497,26 @@ export function register(ctx: PluginContext) {
   ctx.hookPacket('AOEACK', (client, packet) => {
     const state = getState(client);
     if (nexusPrologue(client, state)) { packet.send = false; return; }
+    const playerPos = client.playerData.pos;
+    const aoes      = state.pendingAoes;
+     if (!trackAoeDamage) {
+      aoes.length = 0;
+    } else if (aoes.length > 0 && playerPos) {
+      for (let i = aoes.length - 1; i >= 0; i--) {
+        const aoe = aoes[i];
+        const dx  = playerPos.x - aoe.pos.x;
+        const dy  = playerPos.y - aoe.pos.y;
+        const distSq = dx * dx + dy * dy;
+        const radiusSq = aoe.radius * aoe.radius;
+
+        if (distSq <= radiusSq) {
+          const dmg = getDmgFromState(client, state, aoe.damage, aoe.armorPierce);
+          aoes.splice(i, 1);
+          applyDamage(client, state, dmg, `AoE dmg=${dmg} (on MOVE, pre-AOEACK)`, packet);
+          if (state.nexusSent) return;
+        }
+      }
+    }
     if (state.nexusSent) { packet.send = false; return; }
   }, { prepend: true });
 
