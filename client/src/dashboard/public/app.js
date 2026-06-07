@@ -108,11 +108,11 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
   let seenTypes = new Set();
   let totalCount = 0;
   let recentTimestamps = [];
-  let devMode = localStorage.getItem('devMode') === 'true';
+  let devMode = true; // open source: dev tabs always available
   /** When false, hide the packet sniffer drawer (Admin Mode still shows Logs / Packet Lab). Persisted locally. */
   let packetSnifferVisible = localStorage.getItem('packetSnifferVisible') !== 'false';
   // adminMode is always derived from server — never read from localStorage
-  let adminMode = false;
+  let adminMode = true; // open source: admin-gated features always available
   const legacyLightMode = localStorage.getItem('lightMode') === 'true';
   let currentTheme = localStorage.getItem('theme') || (legacyLightMode ? 'light' : 'dark');
   let currentLanguage = localStorage.getItem('language') || 'en';

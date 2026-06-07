@@ -11017,17 +11017,8 @@ body.theme-mist .mss-btn-submit:hover:not(:disabled) {
 .lab-probe-example .pex-error { color: var(--red); }
 
 /* ===== DEV/ADMIN VISIBILITY ===== */
-/* admin-mode unlocks both .admin-only AND .dev-only (admins see everything). */
-body:not(.dev-mode):not(.admin-mode) .dev-only {
-  display: none !important;
-}
-
-body:not(.admin-mode) .admin-only {
-  display: none !important;
-}
-
-body:not(.admin-mode) #sniffer-drawer,
-body.admin-mode.packet-sniffer-hidden #sniffer-drawer {
+/* Open source: no dev/admin gating — all tabs/features are always visible. */
+body.packet-sniffer-hidden #sniffer-drawer {
   display: none !important;
 }
 
