@@ -141,6 +141,9 @@ import {
   parseDashboardEquipmentTokens,
   buildDashboardUniqueItemLookup,
   decodeDashboardEnchantIds,
+  parseCharListError,
+  parseVerifySuccess,
+  parseVerifyError,
   type DashboardAccountEquipmentToken,
 } from './charListParsers.js';
 
@@ -820,12 +823,6 @@ export class DevServer {
     };
   }
 
-  private parseCharListError(xml: string): string | null {
-    const error = xml.match(/<Error>([^<]*)<\/Error>/i)?.[1]?.trim();
-    if (!error) return null;
-    return this.parseVerifyError(`<Error>${error}</Error>`);
-  }
-
   private async fetchCharListXml(accessToken: string): Promise<{ xml: string } | { error: string }> {
     const body = new URLSearchParams({
       do_login: 'false',
@@ -852,7 +849,7 @@ export class DevServer {
           let data = '';
           res.on('data', (chunk) => { data += chunk; });
           res.on('end', () => {
-            const error = this.parseCharListError(data);
+            const error = parseCharListError(data);
             if (error) {
               resolve({ error });
               return;
@@ -2161,12 +2158,12 @@ export class DevServer {
           let data = '';
           res.on('data', (chunk) => { data += chunk; });
           res.on('end', () => {
-            const token = this.parseVerifySuccess(data);
+            const token = parseVerifySuccess(data);
             if (token) {
               resolve(token);
               return;
             }
-            const errMsg = this.parseVerifyError(data);
+            const errMsg = parseVerifyError(data);
             resolve({ error: errMsg });
           });
         },
@@ -2182,30 +2179,6 @@ export class DevServer {
       req.write(body, 'utf8');
       req.end();
     });
-  }
-
-  private parseVerifySuccess(xml: string): { token: string; tokenTimestamp: string; tokenExpiration: string } | null {
-    const token = xml.match(/<AccessToken>([^<]*)<\/AccessToken>/)?.[1];
-    const tokenTimestamp = xml.match(/<AccessTokenTimestamp>([^<]*)<\/AccessTokenTimestamp>/)?.[1];
-    const tokenExpiration = xml.match(/<AccessTokenExpiration>([^<]*)<\/AccessTokenExpiration>/)?.[1];
-    if (token && tokenTimestamp && tokenExpiration) {
-      return { token, tokenTimestamp, tokenExpiration };
-    }
-    return null;
-  }
-
-  private parseVerifyError(xml: string): string {
-    const raw = xml.match(/<Error>([^<]*)<\/Error>/)?.[1]?.trim() ?? '';
-    const lower = raw.toLowerCase();
-    if (lower.includes('password') || raw === 'PasswordError') return 'Wrong password.';
-    if (lower.includes('wait') || lower.includes('try again later')) return 'Too many requests. Try again later.';
-    if (lower.includes('captcha')) return 'Captcha required. Try again in a browser first.';
-    if (lower.includes('suspended')) return 'Account suspended.';
-    if (lower.includes('account in use')) return 'Account already in use.';
-    if (lower.includes('token for different machine') || lower.includes('different machine'))
-      return 'Token for different machine. Click "Refresh HWID" in the accounts menu (⋯) and try again. If it still fails, log in once via the official launcher to re-bind the account.';
-    if (raw) return raw;
-    return 'Login failed.';
   }
 
   private clampLaunchWindowSize(n: number, min: number, max: number): number {

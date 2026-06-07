@@ -97,3 +97,33 @@ export function decodeDashboardEnchantIds(code: string | null | undefined): numb
     return [];
   }
 }
+
+export function parseCharListError(xml: string): string | null {
+  const error = xml.match(/<Error>([^<]*)<\/Error>/i)?.[1]?.trim();
+  if (!error) return null;
+  return parseVerifyError(`<Error>${error}</Error>`);
+}
+
+export function parseVerifySuccess(xml: string): { token: string; tokenTimestamp: string; tokenExpiration: string } | null {
+  const token = xml.match(/<AccessToken>([^<]*)<\/AccessToken>/)?.[1];
+  const tokenTimestamp = xml.match(/<AccessTokenTimestamp>([^<]*)<\/AccessTokenTimestamp>/)?.[1];
+  const tokenExpiration = xml.match(/<AccessTokenExpiration>([^<]*)<\/AccessTokenExpiration>/)?.[1];
+  if (token && tokenTimestamp && tokenExpiration) {
+    return { token, tokenTimestamp, tokenExpiration };
+  }
+  return null;
+}
+
+export function parseVerifyError(xml: string): string {
+  const raw = xml.match(/<Error>([^<]*)<\/Error>/)?.[1]?.trim() ?? '';
+  const lower = raw.toLowerCase();
+  if (lower.includes('password') || raw === 'PasswordError') return 'Wrong password.';
+  if (lower.includes('wait') || lower.includes('try again later')) return 'Too many requests. Try again later.';
+  if (lower.includes('captcha')) return 'Captcha required. Try again in a browser first.';
+  if (lower.includes('suspended')) return 'Account suspended.';
+  if (lower.includes('account in use')) return 'Account already in use.';
+  if (lower.includes('token for different machine') || lower.includes('different machine'))
+    return 'Token for different machine. Click "Refresh HWID" in the accounts menu (⋯) and try again. If it still fails, log in once via the official launcher to re-bind the account.';
+  if (raw) return raw;
+  return 'Login failed.';
+}
