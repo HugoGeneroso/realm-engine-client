@@ -1,0 +1,2159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Realm Engine</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="api-docs.css">
+  <link rel="stylesheet" href="game-wiki.css">
+</head>
+<body>
+  <!-- View-as override banner — visible only when admin is previewing as another user -->
+  <div id="view-as-banner" class="view-as-banner" style="display:none;">
+    <span class="view-as-banner-icon">🔍</span>
+    <span>Viewing as: <strong id="view-as-banner-label">—</strong></span>
+    <button id="view-as-banner-reset" type="button" class="view-as-banner-reset">Reset</button>
+  </div>
+
+  <!-- Custom titlebar (doubles as drag region in Electron) -->
+  <header id="titlebar">
+    <div class="titlebar-drag">
+      <div class="header-left">
+        <div class="titlebar-icon" aria-hidden="true">
+          <img src="LogoWNoBackground.png" alt="" width="22" height="22" />
+        </div>
+        <h1>Realm Engine</h1>
+      </div>
+      <div class="header-right">
+        <button id="btn-settings" class="icon-btn" title="Settings">&#9881;</button>
+      </div>
+    </div>
+    <div id="window-controls">
+      <button id="btn-minimize" class="win-btn" title="Minimize">
+        <svg viewBox="0 0 12 12" width="12" height="12"><rect y="5" width="12" height="1.5" fill="currentColor"/></svg>
+      </button>
+      <button id="btn-maximize" class="win-btn" title="Maximize">
+        <svg viewBox="0 0 12 12" width="12" height="12"><rect x="1" y="1" width="10" height="10" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+      </button>
+      <button id="btn-close" class="win-btn win-btn-close" title="Close">
+        <svg viewBox="0 0 12 12" width="12" height="12"><path d="M1 1L11 11M11 1L1 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main content -->
+  <div id="main">
+    <!-- Player card (left) -->
+    <div id="player-card">
+
+      <div id="player-identity">
+        <div id="player-avatar">?</div>
+        <div id="player-name-info">
+              <span id="player-name" data-i18n="player.notConnected">Not Connected</span>
+              <span id="player-class" data-i18n="player.waitingForGame">Waiting for game...</span>
+        </div>
+      </div>
+
+      <div id="player-bars">
+        <div class="stat-bar">
+          <div class="bar-label">HP</div>
+          <div class="bar-track hp-track">
+            <div class="bar-fill hp-fill" id="hp-bar" style="width:0%"></div>
+            <div class="bar-value bar-value-row" id="hp-text">
+              <div class="bar-value-center">
+                <span id="hp-main">-- / --</span>
+                <span id="hp-bonus" class="bar-bonus"></span>
+              </div>
+              <div id="hp-regen" class="bar-value-right"></div>
+            </div>
+          </div>
+        </div>
+        <div class="stat-bar">
+          <div class="bar-label">MP</div>
+          <div class="bar-track mp-track">
+            <div class="bar-fill mp-fill" id="mp-bar" style="width:0%"></div>
+            <div class="bar-value bar-value-row" id="mp-text">
+              <div class="bar-value-center">
+                <span id="mp-main">-- / --</span>
+                <span id="mp-bonus" class="bar-bonus"></span>
+              </div>
+              <div id="mp-regen" class="bar-value-right"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="player-stats-grid">
+        <div class="mini-stat"><span class="stat-icon">ATK</span><span id="stat-atk" class="stat-val">--</span></div>
+        <div class="mini-stat"><span class="stat-icon">DEF</span><span id="stat-def" class="stat-val">--</span></div>
+        <div class="mini-stat"><span class="stat-icon">SPD</span><span id="stat-spd" class="stat-val">--</span></div>
+        <div class="mini-stat"><span class="stat-icon">DEX</span><span id="stat-dex" class="stat-val">--</span></div>
+        <div class="mini-stat"><span class="stat-icon">VIT</span><span id="stat-vit" class="stat-val">--</span></div>
+        <div class="mini-stat"><span class="stat-icon">WIS</span><span id="stat-wis" class="stat-val">--</span></div>
+      </div>
+
+      <div id="player-details">
+        <div class="detail-row"><span data-i18n="detail.level">Level</span><span id="detail-level">--</span></div>
+        <div class="detail-row"><span data-i18n="detail.stars">Stars</span><span id="detail-stars">--</span></div>
+        <div class="detail-row"><span data-i18n="detail.fame">Fame</span><span id="detail-fame">--</span></div>
+        <div class="detail-row"><span data-i18n="detail.guild">Guild</span><span id="detail-guild">--</span></div>
+        <div class="detail-row"><span data-i18n="detail.map">Map</span><span id="detail-map">--</span></div>
+        <div class="detail-row"><span data-i18n="detail.gameid">GameId</span><span id="detail-gameid">--</span></div>
+        <div class="detail-row"><span data-i18n="detail.objectid">ObjectId</span><span id="detail-objectid">--</span></div>
+        <div class="detail-row"><span data-i18n="detail.objecttype">ObjectType</span><span id="detail-objecttype">--</span></div>
+        <div class="detail-row"><span data-i18n="detail.position">Position</span><span id="detail-pos">--</span></div>
+        <div class="detail-row"><span data-i18n="detail.questTargetId">Quest target ID</span><span id="detail-questtargetid">--</span></div>
+        <div class="detail-row"><span data-i18n="detail.questTargetType">Quest target type</span><span id="detail-questtargettype">--</span></div>
+        <div class="detail-row"><span data-i18n="detail.server">Server</span><span id="detail-server">--</span></div>
+        <div id="player-details-raw-stats-wrap">
+          <button type="button" class="setting-btn setting-btn-secondary" id="btn-copy-all-players-raw-stats">Copy all players raw stats</button>
+          <button type="button" class="setting-btn setting-btn-secondary" id="btn-copy-vault-data">Copy vault data</button>
+        </div>
+      </div>
+
+      <div id="sidebar-controls">
+        <div id="sidebar-server-switch">
+          <div class="sidebar-section-label" data-i18n="sidebar.server">Server</div>
+          <select id="server-select">
+            <option value="">-- Select Server --</option>
+          </select>
+        </div>
+        <div id="sidebar-ip-connect">
+          <div class="sidebar-section-label" data-i18n="sidebar.ipConnect">IP Connect</div>
+          <div class="ip-connect-row">
+            <input type="text" id="ip-input" placeholder="e.g. 54.241.208.233">
+            <button id="ip-connect-btn" class="setting-btn" data-i18n="btn.connect">Connect</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="single-account-dock" class="single-account-dock hidden minimized" aria-live="polite">
+      <button type="button" id="single-account-dock-toggle" class="single-account-dock-toggle" aria-expanded="false" aria-label="Toggle connected account panel">
+        <span id="single-account-dock-avatar" class="single-account-dock-avatar">?</span>
+        <span class="single-account-dock-summary">
+          <span id="single-account-dock-name" class="single-account-dock-name">No account</span>
+          <span id="single-account-dock-meta" class="single-account-dock-meta">Disconnected</span>
+        </span>
+        <span id="single-account-dock-chevron" class="single-account-dock-chevron">⌃</span>
+      </button>
+      <div id="single-account-dock-panel" class="single-account-dock-panel">
+        <div class="single-account-dock-head">
+          <span>Connected Account</span>
+          <button type="button" id="single-account-dock-minimize" class="single-account-dock-minimize" aria-label="Minimize connected account panel">−</button>
+        </div>
+        <div id="single-account-dock-card-slot"></div>
+      </div>
+    </div>
+
+    <!-- Multi-account sidebar (hidden unless multi-account view is on) -->
+    <div id="multi-account-panel" class="hidden">
+      <div class="multi-account-mode-toggle" role="tablist" aria-label="Multi account sidebar mode">
+        <button type="button" id="multi-sidebar-mode-connected" class="multi-account-mode-btn active" role="tab" aria-selected="true">Connected</button>
+        <button type="button" id="multi-sidebar-mode-launch" class="multi-account-mode-btn" role="tab" aria-selected="false">Launch</button>
+      </div>
+      <div id="multi-account-connected-list"></div>
+      <div id="multi-account-launch-panel" class="hidden mac-launch-panel">
+        <div class="mac-launch-toolbar">
+          <button type="button" id="mac-launch-sort-btn" class="mac-launch-sort-btn setting-btn setting-btn-secondary" aria-expanded="false" aria-haspopup="dialog" aria-controls="mac-launch-sort-popout">
+            <span data-i18n="mac.launch.sortTrigger">Sort &amp; filter</span>
+          </button>
+          <div id="mac-launch-sort-popout" class="mac-launch-sort-popout hidden" role="dialog" aria-modal="false" aria-label="Launch list sort and filter">
+            <div class="mac-launch-sort-field">
+              <label for="mac-launch-sort-mode" data-i18n="mac.launch.sortBy">Sort by</label>
+              <select id="mac-launch-sort-mode" class="mac-launch-sort-select">
+                <option value="newest" data-i18n="mac.launch.sortOpt.newest">Newest saved</option>
+                <option value="oldest" data-i18n="mac.launch.sortOpt.oldest">Oldest saved</option>
+                <option value="alphabetical" data-i18n="mac.launch.sortOpt.alpha">A → Z</option>
+                <option value="fame_high" data-i18n="mac.launch.sortOpt.fameHigh">Best fame (high)</option>
+                <option value="fame_low" data-i18n="mac.launch.sortOpt.fameLow">Best fame (low)</option>
+              </select>
+            </div>
+            <div class="mac-launch-sort-field">
+              <label for="mac-launch-season-filter" data-i18n="mac.launch.filterSeason">Seasonal</label>
+              <select id="mac-launch-season-filter" class="mac-launch-sort-select">
+                <option value="any" data-i18n="mac.launch.filter.any">Any</option>
+                <option value="yes" data-i18n="mac.launch.filter.yes">Yes</option>
+                <option value="no" data-i18n="mac.launch.filter.no">No</option>
+              </select>
+            </div>
+            <div class="mac-launch-sort-field">
+              <label for="mac-launch-min-fame" data-i18n="mac.launch.minBestFame">Min best-char fame</label>
+              <input type="number" id="mac-launch-min-fame" class="mac-launch-num-input" inputmode="numeric" min="0" step="1" autocomplete="off" />
+            </div>
+          </div>
+        </div>
+        <div id="mac-launch-sort-summary" class="mac-launch-sort-summary" aria-hidden="true"></div>
+        <div id="mac-launch-groups-section" class="mac-launch-groups-section">
+          <div class="mac-launch-groups-toolbar">
+            <span class="mac-launch-groups-label" data-i18n="mac.launch.groupsTitle">Launch groups</span>
+            <button type="button" id="mac-launch-group-add" class="setting-btn setting-btn-secondary mac-launch-group-add-btn" data-i18n-title="mac.launch.groupsNewTitle" title="Save a new group">+</button>
+          </div>
+          <div id="mac-launch-groups-list" class="mac-launch-groups-list" role="list"></div>
+        </div>
+        <div id="multi-account-launch-list"></div>
+      </div>
+    </div>
+
+    <!-- Multi-account stats popout -->
+    <div id="multi-account-popout" class="hidden" role="dialog" aria-modal="true">
+      <div id="multi-account-popout-inner">
+        <button id="multi-account-popout-close" class="mac-popout-close" aria-label="Close">×</button>
+        <div id="multi-account-popout-body"></div>
+      </div>
+    </div>
+
+    <!-- Script-defined popout panel (RealmEngine.ui.panel) -->
+    <div id="script-panel-popout" class="hidden script-panel-popout" role="dialog" aria-modal="true">
+      <div id="script-panel-popout-inner" class="script-panel-popout-inner">
+        <header class="script-panel-popout-header">
+          <div class="script-panel-popout-titles">
+            <div id="script-panel-popout-title" class="script-panel-popout-title">Script panel</div>
+            <div id="script-panel-popout-subtitle" class="script-panel-popout-subtitle"></div>
+          </div>
+          <button id="script-panel-popout-close" class="mac-popout-close" aria-label="Close">×</button>
+        </header>
+        <div id="script-panel-popout-body" class="script-panel-popout-body"></div>
+      </div>
+    </div>
+
+    <!-- Tabbed content area (center) -->
+    <div id="content-area">
+      <div id="launcher-topbar" aria-label="Quick navigation">
+        <div class="launcher-quick-group">
+          <button type="button" class="launcher-quick-btn launcher-quick-btn--primary" data-launcher-tab="accounts">
+            <span class="launcher-quick-icon">A</span>
+            <span class="launcher-quick-label">Quick Launch</span>
+          </button>
+          <button type="button" class="launcher-quick-btn" data-launcher-tab="plugins">Plugins</button>
+        </div>
+      </div>
+      <div id="content-tabs">
+        <button class="content-tab active" data-tab="home" data-icon="H" data-label="Home" data-i18n="tab.home">Home</button>
+        <button class="content-tab" data-tab="plugins" data-icon="P" data-label="Plugins" data-i18n="tab.plugins">Plugins</button>
+        <button class="content-tab" data-tab="hotkeys" data-icon="K" data-label="Hotkeys">Hotkeys</button>
+        <button class="content-tab" data-tab="accounts" data-icon="A" data-label="Accounts" data-i18n="tab.accounts">Accounts</button>
+        <button class="content-tab admin-only" data-tab="logs" data-icon="L" data-label="Logs" data-i18n="tab.logs">Logs</button>
+        <button class="content-tab" data-tab="damage" data-icon="D" data-label="Damage Sniffer" data-i18n="tab.damage">Damage Sniffer</button>
+        <button class="content-tab admin-only" data-tab="internal" data-icon="DLL" data-label="Internal">Internal</button>
+        <div class="content-tabs-section-label dev-only" id="content-tabs-dev-label" data-i18n="tab.developer">Developer</div>
+        <button class="content-tab dev-only" data-tab="api" data-icon="{}" data-label="API" data-i18n="tab.api">API</button>
+        <button class="content-tab dev-only" data-tab="objects" data-icon="O" data-label="Objects" data-i18n="tab.objects">Objects</button>
+        <button class="content-tab dev-only" data-tab="tilemap" data-icon="T" data-label="Tilemap" data-i18n="tab.tilemap">Tilemap</button>
+        <button class="content-tab dev-only" data-tab="game-wiki" data-icon="W" data-label="Game Wiki" data-i18n="tab.gameWiki">Game Wiki</button>
+        <button class="content-tab dev-only" data-tab="nearby" data-icon="N" data-label="Nearby Players" data-i18n="tab.nearby">Nearby Players</button>
+        <button class="content-tab admin-only" data-tab="packet-lab" data-icon="PK" data-label="Packet Lab">Packet Lab <span id="lab-tab-badge" class="lab-tab-badge hidden">0</span></button>
+        <button class="content-tab admin-only" data-tab="multibox" data-icon="M" data-label="Multibox" data-i18n="tab.multibox">Multibox</button>
+        <button class="content-tab admin-only" data-tab="mem-helper" data-icon="CPU" data-label="Mem Helper" data-i18n="tab.memHelper">Mem Helper</button>
+        <button class="content-tab dev-only" data-tab="scripts" data-icon="S" data-label="Scripts" data-i18n="tab.scripts">Scripts</button>
+      </div>
+
+      <div id="tab-home" class="tab-panel active">
+        <div id="home-toolbar">
+          <button id="home-edit-btn" class="icon-btn" data-i18n-title="home.edit.title" title="Edit layout">
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5z"/>
+            </svg>
+          </button>
+          <div id="home-edit-actions" class="home-edit-actions hidden">
+            <button id="home-edit-save" class="setting-btn" data-i18n="btn.save">Save</button>
+            <button id="home-edit-cancel" class="setting-btn setting-btn-secondary" data-i18n="btn.cancel">Cancel</button>
+          </div>
+        </div>
+        <div id="home-connected-layout" class="home-layout hs-layout">
+
+          <!-- Hidden status nodes required by JS -->
+          <span id="home-conn-dot" hidden></span>
+          <span id="home-conn-state" hidden></span>
+          <span id="home-action-status" hidden></span>
+          <button id="home-quick-launch-btn" hidden></button>
+
+          <!-- Body: left column (Character + Script) | right column (Accounts) -->
+          <div class="hs-body-grid">
+
+            <div class="hs-left-col">
+              <div class="hs-card">
+                <div class="hs-card-label">Character</div>
+                <div class="hs-char-top">
+                  <div id="hs-char-portrait" class="hs-portrait"></div>
+                  <div class="hs-char-info">
+                    <div id="home-char-name" class="hs-char-name">No character</div>
+                    <div id="home-char-meta" class="hs-char-meta">Waiting for connection</div>
+                    <div class="hs-bars">
+                      <div class="hs-bar-row">
+                        <span class="hs-blabel">HP</span>
+                        <div class="hs-bar-track"><div id="home-char-hp-fill" class="hs-bar-fill hs-hp"></div></div>
+                        <span id="home-char-hp-text" class="hs-btext">-- / --</span>
+                      </div>
+                      <div class="hs-bar-row">
+                        <span class="hs-blabel">MP</span>
+                        <div class="hs-bar-track"><div id="home-char-mp-fill" class="hs-bar-fill hs-mp"></div></div>
+                        <span id="home-char-mp-text" class="hs-btext">-- / --</span>
+                      </div>
+                    </div>
+                    <div class="hs-meta-row">
+                      <span>Map: <strong id="home-char-map">--</strong></span>
+                      <span>Fame: <strong id="home-char-fame">--</strong></span>
+                      <span>Guild: <strong id="home-char-guild">--</strong></span>
+                    </div>
+                  </div>
+                </div>
+                <div class="hs-equip-label">Equipment</div>
+                <div id="hs-char-equip" class="hs-char-equip"></div>
+                <div class="hs-equip-label">Inventory</div>
+                <div id="hs-char-inventory" class="hs-char-inventory"></div>
+                <span id="home-char-pos" hidden></span>
+                <span id="home-char-server" hidden></span>
+                <div id="home-char-stats" hidden></div>
+                <div id="home-char-effects" hidden></div>
+              </div>
+
+              <div class="hs-card">
+                <div class="hs-card-label">Script</div>
+                <div id="home-script-current-name" class="hs-script-name">No script selected</div>
+                <div class="hs-script-btns">
+                  <button id="home-script-primary-btn" class="hs-run-btn">Run</button>
+                  <button id="home-script-pause-toggle-btn" class="hs-stop-btn">Stop</button>
+                  <button type="button" class="hs-browse-btn" data-launcher-tab="scripts">Browse</button>
+                </div>
+                <div class="hs-stats-grid">
+                  <div class="hs-stat">
+                    <span class="hs-stat-label">Time Online</span>
+                    <span id="home-stat-uptime" class="hs-stat-value">0s</span>
+                  </div>
+                  <div class="hs-stat">
+                    <span class="hs-stat-label">White Bags</span>
+                    <span id="home-stat-white-bags" class="hs-stat-value">0</span>
+                  </div>
+                  <div class="hs-stat">
+                    <span class="hs-stat-label">Fame Gained</span>
+                    <span id="home-stat-fame-gained" class="hs-stat-value">0</span>
+                  </div>
+                  <div class="hs-stat">
+                    <span class="hs-stat-label">Avg FPM</span>
+                    <span id="home-stat-average-fpm" class="hs-stat-value">0</span>
+                  </div>
+                </div>
+                <span id="home-script-current-status" hidden></span>
+                <span id="home-script-runtime" hidden></span>
+                <span id="home-script-status" hidden></span>
+                <div id="home-script-note" hidden></div>
+                <button id="home-script-browse-btn" hidden></button>
+              </div>
+            </div>
+
+            <div class="hs-card hs-accounts-col">
+              <div class="hs-card-hdr">
+                <span class="hs-card-label">Your Accounts</span>
+                <select id="home-accounts-sort" class="hs-sort-sel">
+                  <option value="newest">Newest</option>
+                  <option value="oldest">Oldest</option>
+                  <option value="alphabetical">A–Z</option>
+                  <option value="fame">Fame</option>
+                </select>
+              </div>
+              <input type="search" id="hs-accounts-search" class="hs-accounts-search" placeholder="Search accounts…" autocomplete="off" spellcheck="false">
+              <div id="home-accounts-roster" class="hs-roster"></div>
+            </div>
+
+          </div>
+
+          <!-- JS-required hidden nodes -->
+          <button id="home-conn-launch-btn" hidden></button>
+          <button id="home-conn-reconnect-btn" hidden></button>
+          <button id="home-feed-open-logs-btn" hidden></button>
+          <button id="home-feed-clear-btn" hidden></button>
+          <div id="home-feed-list" hidden></div>
+          <span id="home-conn-proxy" hidden></span>
+          <span id="home-conn-client" hidden></span>
+          <span id="home-conn-server" hidden></span>
+          <span id="home-conn-uptime" hidden></span>
+          <span id="home-stat-events-killed" hidden></span>
+          <span id="home-stat-dungeons-ran" hidden></span>
+          <span id="home-last-session" hidden></span>
+          <span id="home-last-ended" hidden></span>
+        </div>
+        <div id="home-multibox-placeholder" class="home-layout home-multibox-placeholder hidden" aria-hidden="true"></div>
+        <div id="home-multi-layout" class="home-layout home-multi-layout hidden">
+          <section class="home-card home-multi-hero home-card--span-2">
+            <div class="home-multi-hero-head">
+              <div class="home-multi-hero-title-wrap">
+                <div class="home-card-title">Multi Account Command</div>
+                <h2 class="home-multi-hero-title">Operations Overview</h2>
+              </div>
+              <div class="home-multi-hero-status">
+                <span id="home-multi-live-status" class="home-status-pill">No live sessions</span>
+                <span id="home-multi-primary-server" class="home-multi-primary-server">Primary server: --</span>
+              </div>
+            </div>
+
+            <div class="home-multi-metric-grid">
+              <div class="home-multi-metric-card">
+                <span class="home-multi-metric-label">Live Sessions</span>
+                <span id="home-multi-connected-count" class="home-multi-metric-value">0</span>
+              </div>
+              <div class="home-multi-metric-card">
+                <span class="home-multi-metric-label">Total Fame Gained</span>
+                <span id="home-multi-fame-gained" class="home-multi-metric-value">0</span>
+              </div>
+              <div class="home-multi-metric-card">
+                <span class="home-multi-metric-label">Average FPM</span>
+                <span id="home-multi-average-fpm" class="home-multi-metric-value">0</span>
+              </div>
+              <div class="home-multi-metric-card">
+                <span class="home-multi-metric-label">Runtime</span>
+                <span id="home-multi-runtime" class="home-multi-metric-value">0s</span>
+              </div>
+            </div>
+
+          </section>
+
+          <div id="home-multi-connected-cards-grid" class="home-multi-connected-cards-grid home-card--span-3"></div>
+
+        </div>
+      </div>
+
+
+      <div id="tab-plugins" class="tab-panel" style="display:none;">
+        <div id="plugin-hub" class="plugin-hub plugin-trainer" aria-label="Plugins" data-i18n-aria-label="plugins.hub.aria">
+          <aside id="plugin-hub-sidebar" class="plugin-hub-sidebar">
+            <div class="plugin-hub-toolbar">
+              <input type="search" id="plugin-search" class="plugin-search-input" placeholder="Search plugins…" data-i18n-placeholder="plugins.search.placeholder" autocomplete="off" spellcheck="false" aria-label="Search plugins" data-i18n-aria-label="plugins.search.aria">
+              <select id="plugin-category" class="plugin-category-select" aria-label="Filter by category" data-i18n-aria-label="plugins.category.filter.aria"></select>
+            </div>
+            <div id="plugin-sidebar-list" class="plugin-sidebar-list" role="listbox" aria-label="Plugin list" data-i18n-aria-label="plugins.list.aria"></div>
+          </aside>
+          <main id="plugin-hub-main" class="plugin-hub-main">
+            <div id="plugin-detail" class="plugin-detail">
+              <div class="plugin-detail-loading">
+                <div class="plugin-loading-spinner"></div>
+                <span data-i18n="plugins.loading">Loading plugins…</span>
+              </div>
+            </div>
+          </main>
+        </div>
+      </div>
+
+      <div id="tab-hotkeys" class="tab-panel" style="display:none;">
+        <div class="hotkeys-page">
+          <div class="hotkeys-toolbar">
+            <div>
+              <h2 class="hotkeys-title">Plugin Hotkeys</h2>
+              <p class="hotkeys-subtitle">Bind a key to toggle each plugin while the game window is focused.</p>
+            </div>
+            <input type="search" id="hotkeys-search" class="hotkeys-search" placeholder="Search plugins..." autocomplete="off" spellcheck="false" aria-label="Search plugin hotkeys">
+          </div>
+          <div id="hotkeys-status" class="hotkeys-status" aria-live="polite"></div>
+          <div class="hotkeys-table-wrap">
+            <table class="hotkeys-table">
+              <thead>
+                <tr>
+                  <th>Plugin</th>
+                  <th>Category</th>
+                  <th>Status</th>
+                  <th>Hotkey</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="hotkeys-table-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+
+      <div id="tab-accounts" class="tab-panel" style="display:none;">
+        <!-- Empty-state setup (shown when zero accounts) -->
+        <div id="accounts-setup" class="accounts-setup" style="display:none;">
+          <div class="accounts-setup-card">
+
+            <!-- ───── STEP 1 — pick login method ───── -->
+            <div id="accounts-setup-step1" class="accounts-setup-step">
+              <div class="accounts-setup-stepbar">
+                <span class="accounts-setup-step-label">Step 1 of 2</span>
+              </div>
+              <div class="accounts-setup-title">How do you sign in to RotMG?</div>
+              <div class="accounts-setup-subtitle">Pick a method below. You can change this later.</div>
+              <div class="setup-method-grid">
+                <button type="button" class="setup-method-card" data-method="email">
+                  <div class="setup-method-icon">📧</div>
+                  <div class="setup-method-name">Email &amp; Password</div>
+                  <div class="setup-method-desc">Sign in with your Deca email + password</div>
+                </button>
+                <button type="button" class="setup-method-card" data-method="steam">
+                  <div class="setup-method-icon">🎮</div>
+                  <div class="setup-method-name">Steam Account</div>
+                  <div class="setup-method-desc">Sign in via Steam — most common</div>
+                </button>
+                <button type="button" class="setup-method-card" data-method="import">
+                  <div class="setup-method-icon">📥</div>
+                  <div class="setup-method-name">Import existing</div>
+                  <div class="setup-method-desc">From the RotMG launcher or captured logins</div>
+                </button>
+              </div>
+            </div>
+
+            <!-- ───── STEP 2 — fill form (variant per method) ───── -->
+            <div id="accounts-setup-step2" class="accounts-setup-step" style="display:none;">
+              <div class="accounts-setup-stepbar">
+                <button id="accounts-setup-back-btn" type="button" class="setup-back-btn">← Back</button>
+                <span class="accounts-setup-step-label">Step 2 of 2 · <span id="accounts-setup-method-label">Email &amp; Password</span></span>
+              </div>
+
+              <!-- EMAIL VARIANT -->
+              <div class="accounts-setup-variant" data-variant="email" style="display:none;">
+                <div class="accounts-setup-title">Enter your Deca login</div>
+                <div class="accounts-setup-subtitle">Use the email + password you set when you registered with Deca.</div>
+                <div class="accounts-form">
+                  <div class="accounts-field">
+                    <label for="accounts-setup-alias-email">Alias <span class="accounts-muling-hint">(optional display name)</span></label>
+                    <input id="accounts-setup-alias-email" class="accounts-setup-alias-input" type="text" placeholder="Display name (optional)" />
+                  </div>
+                  <div class="accounts-field">
+                    <label for="accounts-setup-email-email">Email</label>
+                    <input id="accounts-setup-email-email" class="accounts-setup-email-input" type="text" placeholder="name@example.com" />
+                  </div>
+                  <div class="accounts-field">
+                    <label for="accounts-setup-password-email">Password</label>
+                    <div class="accounts-password-row">
+                      <input id="accounts-setup-password-email" class="accounts-setup-password-input" type="password" placeholder="Password" />
+                      <button class="setting-btn setting-btn-secondary accounts-password-toggle accounts-setup-password-vis" type="button">Show</button>
+                    </div>
+                  </div>
+                  <div class="accounts-field">
+                    <label for="accounts-setup-server-email">Server</label>
+                    <select id="accounts-setup-server-email" class="accounts-setup-server-select"></select>
+                  </div>
+                </div>
+              </div>
+
+              <!-- STEAM VARIANT — EAM-style flat form. The Guid field expects
+                   the steamworks:<steamId> format (Deca's actual storage key);
+                   if a bare 17-digit ID is typed, JS auto-prepends the prefix. -->
+              <div class="accounts-setup-variant" data-variant="steam" style="display:none;">
+                <div class="accounts-setup-title">Enter your Steam-linked Deca login</div>
+                <div class="accounts-setup-subtitle">Same form as EAM. Paste your Guid as <code>steamworks:&lt;17-digit Steam ID&gt;</code> and your Deca Secret.</div>
+                <!-- Top-of-form explainer: what the Deca Steam Secret IS + Path A hint. -->
+                <details class="steam-explainer" open>
+                  <summary>What is the "Deca Steam Secret"? Why am I being asked for it?</summary>
+                  <div class="steam-explainer-body">
+                    <p><strong>It's not your Steam password.</strong> It's a long-lived token Deca created for you the first time you linked your Steam account to RotMG Exalt. Their launcher caches it locally so you only ever go through Steam once.</p>
+                    <p><strong>Fastest way to get it:</strong> if you've launched RotMG via Steam on this PC at least once, the secret is already saved. Just click <strong>📥 Import from Launcher</strong> below and we'll read it out of the launcher's settings (<code>HKCU\\Software\\DECA Live Operations GmbH\\RotMG Exalt Launcher\\Productionps</code>) and base64-decode it for you.</p>
+                    <p><strong>Never used the launcher on this PC?</strong> You'll need to run RotMG Exalt via Steam once (the launcher contacts Deca, gets a fresh secret, and caches it). Then come back and click Import.</p>
+                    <p><strong>Have multiple accounts?</strong> Sign each one into the launcher in turn — our injected DLL captures every login. Then click <strong>📥 Import All Captured</strong> to add them all at once.</p>
+                  </div>
+                </details>
+                <div class="accounts-form">
+                  <div class="accounts-field">
+                    <label for="accounts-setup-alias-steam">Alias <span class="accounts-muling-hint">(optional display name)</span></label>
+                    <input id="accounts-setup-alias-steam" class="accounts-setup-alias-input" type="text" placeholder="Display name (optional)" />
+                  </div>
+                  <div class="accounts-field">
+                    <label for="accounts-setup-email-steam">Guid <span class="accounts-muling-hint">(steamworks:&lt;Steam ID&gt;)</span></label>
+                    <input id="accounts-setup-email-steam" class="accounts-setup-email-input" type="text" placeholder="steamworks:76561198000000000" autocapitalize="none" autocomplete="off" spellcheck="false" />
+                  </div>
+                  <div class="accounts-field">
+                    <label for="accounts-setup-password-steam">Deca Secret <span class="accounts-muling-hint">(NOT your Steam password)</span></label>
+                    <div class="accounts-password-row">
+                      <input id="accounts-setup-password-steam" class="accounts-setup-password-input" type="password" placeholder="Paste the secret here (or use a button below)" autocapitalize="none" autocomplete="off" spellcheck="false" />
+                      <button class="setting-btn setting-btn-secondary accounts-password-toggle accounts-setup-password-vis" type="button">Show</button>
+                    </div>
+                    <div class="accounts-setup-import-row" style="margin-top:6px;">
+                      <button id="accounts-setup-import-launcher-btn" class="setting-btn setting-btn-secondary" type="button" title="Pull the Guid + Secret currently saved by the official RotMG Exalt Launcher on this PC">
+                        📥 Import from Launcher
+                      </button>
+                      <button id="accounts-setup-import-capture-btn" class="setting-btn setting-btn-secondary" type="button" title="Import every account our injected DLL has captured">
+                        📥 Import All Captured
+                      </button>
+                    </div>
+                    <span id="accounts-setup-import-status" class="accounts-muling-hint" style="display:none;"></span>
+                  </div>
+                  <div class="accounts-field">
+                    <label for="accounts-setup-server-steam">Server</label>
+                    <select id="accounts-setup-server-steam" class="accounts-setup-server-select"></select>
+                  </div>
+                </div>
+              </div>
+
+              <!-- IMPORT VARIANT -->
+              <div class="accounts-setup-variant" data-variant="import" style="display:none;">
+                <div class="accounts-setup-title">Import existing accounts</div>
+                <div class="accounts-setup-subtitle">Pull credentials from sources already on this PC. No typing needed.</div>
+                <div class="accounts-form">
+                  <div class="setup-substep">
+                    <div class="setup-substep-head"><span class="setup-substep-num">A</span><span class="setup-substep-title">From the official RotMG Launcher</span></div>
+                    <div class="setup-substep-desc">Pulls the GUID + Secret currently saved in the launcher's Unity PlayerPrefs. Adds one account.</div>
+                    <button id="accounts-setup-import-launcher-btn-2" class="setting-btn setting-btn-secondary" type="button">
+                      📥 Import from Launcher
+                    </button>
+                  </div>
+                  <div class="setup-substep">
+                    <div class="setup-substep-head"><span class="setup-substep-num">B</span><span class="setup-substep-title">From our DLL capture log</span></div>
+                    <div class="setup-substep-desc">If you've signed in via the launcher with our DLL injected, every captured login becomes one row.</div>
+                    <button id="accounts-setup-import-capture-btn-2" class="setting-btn setting-btn-secondary" type="button">
+                      📥 Import All Captured
+                    </button>
+                  </div>
+                  <span id="accounts-setup-import-status-2" class="accounts-muling-hint" style="display:none;"></span>
+                </div>
+              </div>
+
+              <div class="accounts-setup-actions">
+                <button id="accounts-setup-add-btn" class="setting-btn" data-i18n="accounts.btn.addFirst">Add Account</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- Main accounts UI (hidden when zero accounts) -->
+        <div id="accounts-main" class="accounts-main">
+        <div class="accounts-toolbar">
+          <div class="accounts-search-wrap">
+            <input id="accounts-search" class="accounts-search" type="text" placeholder="Search alias, email, server..." data-i18n-placeholder="accounts.search.placeholder" />
+            <div id="accounts-count" class="accounts-count">0 accounts</div>
+          </div>
+          <div class="accounts-toolbar-actions">
+            <button id="accounts-launch-btn" class="setting-btn" data-i18n="btn.launch">Launch</button>
+          </div>
+        </div>
+        <div id="accounts-layout" class="accounts-layout">
+          <div class="accounts-list-panel">
+            <div class="accounts-panel-title accounts-list-titlebar">
+              <span data-i18n="accounts.list.title">Stored Accounts</span>
+              <div class="accounts-list-titlebar-actions">
+                <select id="accounts-sort" class="accounts-sort-select" aria-label="Sort accounts" data-i18n-aria-label="accounts.sort.aria">
+                  <option value="newest" data-i18n="accounts.sort.newest">Newest</option>
+                  <option value="oldest" data-i18n="accounts.sort.oldest">Oldest</option>
+                  <option value="alphabetical" data-i18n="accounts.sort.alpha">Alphabetical</option>
+                  <option value="fame" data-i18n="accounts.sort.fame">Fame</option>
+                </select>
+                <button id="accounts-ctx-btn" class="accounts-ctx-btn" type="button" title="More actions" data-i18n-title="accounts.ctx.more">&hellip;</button>
+              </div>
+              <!-- Context menu -->
+              <div id="accounts-ctx-menu" class="accounts-ctx-menu" style="display:none;">
+                <button type="button" class="accounts-ctx-item" data-action="refresh-all" data-i18n="accounts.ctx.refreshAll">Refresh All Accounts</button>
+                <button type="button" class="accounts-ctx-item" data-action="refresh-hwid">Refresh HWID</button>
+                <button type="button" class="accounts-ctx-item" data-action="reorder" data-i18n="accounts.ctx.reorder">Reorder Accounts</button>
+                <button type="button" class="accounts-ctx-item accounts-ctx-item--danger" data-action="delete" data-i18n="accounts.ctx.delete">Delete Account</button>
+              </div>
+            </div>
+            <div id="accounts-list" class="accounts-list"></div>
+            <div id="accounts-empty" class="empty-state" data-i18n="accounts.empty">No accounts saved yet.</div>
+            <button id="accounts-new-btn" class="accounts-add-btn" type="button" data-i18n="accounts.btn.addNew">+ Add Account</button>
+          </div>
+          <div id="accounts-editor-panel" class="accounts-editor-panel">
+
+            <!-- Editor header -->
+            <div class="accounts-editor-header">
+              <div class="accounts-editor-avatar" id="accounts-editor-avatar">A</div>
+              <div class="accounts-editor-identity">
+                <span class="accounts-editor-display-name" id="accounts-editor-display-name">Select an account</span>
+                <span class="accounts-editor-display-sub" id="accounts-editor-display-sub"></span>
+              </div>
+              <div class="accounts-editor-tabs">
+                <button type="button" class="accounts-editor-tab active" data-editor-tab="credentials">Credentials</button>
+                <button type="button" class="accounts-editor-tab" data-editor-tab="automation">Automation</button>
+                <button type="button" class="accounts-editor-tab" data-editor-tab="overview">Overview</button>
+              </div>
+            </div>
+
+            <!-- Credentials tab -->
+            <div id="accounts-login-section" class="accounts-editor-tab-panel">
+
+              <div class="acct-section">
+                <div class="acct-section-head"><span class="acct-section-title">Identity</span></div>
+                <div class="accounts-row">
+                  <div class="accounts-field">
+                    <label for="accounts-alias" data-i18n="accounts.label.alias">Alias</label>
+                    <input type="text" id="accounts-alias" placeholder="Display name" autocomplete="off" spellcheck="false" data-i18n-placeholder="accounts.placeholder.alias">
+                  </div>
+                  <div class="accounts-field">
+                    <label for="accounts-server" data-i18n="accounts.label.server">Server</label>
+                    <select id="accounts-server"></select>
+                  </div>
+                </div>
+                <div class="accounts-steam-toggle-row">
+                  <div class="accounts-steam-toggle-copy">
+                    <span>I sign in to RotMG with Steam</span>
+                    <span>Use GUID + Deca-issued Steam secret instead of email/password.</span>
+                  </div>
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="accounts-is-steam">
+                    <span class="toggle-slider"></span>
+                  </label>
+                </div>
+                <input type="hidden" id="accounts-steam-id">
+                <div id="accounts-steam-id-wrap" style="display:none;">
+                  <details id="accounts-steam-explainer" class="accounts-steam-explainer">
+                    <summary>What is the "Deca Steam Secret"? Why am I being asked for it?</summary>
+                    <div class="steam-explainer-body">
+                      <p><strong>It's not your Steam password.</strong> It's a long-lived token Deca created for you the first time you linked your Steam account to RotMG Exalt. The launcher caches it locally so you only ever go through Steam once.</p>
+                      <p><strong>Fastest way to get it:</strong> if you've launched RotMG via Steam on this PC, click <strong>📥 Import from Launcher</strong> below — we read it from <code>HKCU\\Software\\DECA Live Operations GmbH\\RotMG Exalt Launcher\\Productionps</code> and base64-decode it.</p>
+                      <p><strong>Multiple accounts?</strong> Sign each one into the launcher in turn (our DLL captures every login). Then click <strong>📥 Import All Captured Accounts</strong>.</p>
+                    </div>
+                  </details>
+                </div>
+              </div>
+
+              <div class="acct-section">
+                <div class="acct-section-head"><span class="acct-section-title">Login</span></div>
+                <div id="accounts-login-creds" class="accounts-login-creds">
+                  <div id="accounts-steam-creds-label" class="accounts-steam-creds-label" style="display:none;">Steam Credentials</div>
+                  <div id="accounts-steam-import-row" class="accounts-field accounts-import-launcher-row" style="display:none;">
+                    <div class="accounts-import-launcher-btns">
+                      <button type="button" id="accounts-import-launcher-btn" class="setting-btn setting-btn-secondary accounts-import-launcher-btn" title="Pull the GUID + Secret currently saved by the official RotMG Exalt Launcher on this PC">📥 Import from Launcher</button>
+                      <button type="button" id="accounts-import-capture-btn" class="setting-btn setting-btn-secondary accounts-import-launcher-btn" title="Import every account our injected DLL has captured from AppEngineManager.Connect calls — one row per unique GUID">📥 Import All Captured Accounts</button>
+                      <span id="accounts-import-launcher-status" class="accounts-import-status" style="display:none;"></span>
+                      <span id="accounts-import-capture-status" class="accounts-import-status" style="display:none;"></span>
+                    </div>
+                  </div>
+                  <div class="accounts-row">
+                    <div class="accounts-field">
+                      <label id="accounts-email-label" for="accounts-email" data-i18n="accounts.label.email">Email</label>
+                      <input type="text" id="accounts-email" placeholder="name@example.com" autocomplete="off" spellcheck="false">
+                    </div>
+                    <div class="accounts-field">
+                      <label id="accounts-password-label" for="accounts-password" data-i18n="accounts.label.password">Password</label>
+                      <div class="accounts-password-row">
+                        <input type="password" id="accounts-password" autocomplete="new-password" spellcheck="false" data-i18n-placeholder="accounts.placeholder.password">
+                        <button type="button" id="accounts-password-visibility-btn" class="setting-btn setting-btn-secondary accounts-password-toggle" data-i18n="accounts.btn.show">Show</button>
+                      </div>
+                    </div>
+                  </div>
+                  <div id="accounts-steam-id-wrap" style="display:none;">
+                    <details id="accounts-steam-explainer" class="accounts-steam-explainer">
+                      <summary>What is the "Deca Steam Secret"? Why am I being asked for it?</summary>
+                      <div class="steam-explainer-body">
+                        <p><strong>It's not your Steam password.</strong> It's a long-lived token Deca created for you the first time you linked your Steam account to RotMG Exalt. The launcher caches it locally so you only ever go through Steam once.</p>
+                        <p><strong>Fastest way to get it:</strong> if you've launched RotMG via Steam on this PC, click <strong>📥 Import from Launcher</strong> below — we read it from <code>HKCU\\Software\\DECA Live Operations GmbH\\RotMG Exalt Launcher\\Productionps</code> and base64-decode it.</p>
+                        <p><strong>Multiple accounts?</strong> Sign each one into the launcher in turn (our DLL captures every login). Then click <strong>📥 Import All Captured Accounts</strong>.</p>
+                      </div>
+                    </details>
+                  </div>
+                </div>
+              </div>
+
+
+            </div><!-- /credentials tab -->
+
+            <!-- Automation tab -->
+            <div id="accounts-muling-section" class="accounts-editor-tab-panel" style="display:none;">
+
+              <div class="acct-section">
+                <div class="acct-section-head"><span class="acct-section-title">Role</span></div>
+                <div class="accounts-field">
+                  <label>Muling Role</label>
+                  <div class="accounts-muling-role-row">
+                    <button type="button" id="accounts-role-none" class="accounts-role-btn" data-role="none">None</button>
+                    <button type="button" id="accounts-role-main" class="accounts-role-btn" data-role="main">Main</button>
+                    <button type="button" id="accounts-role-mule" class="accounts-role-btn" data-role="mule">Mule</button>
+                  </div>
+                </div>
+                <div id="accounts-muling-main-opts" class="accounts-muling-sub" style="display:none;">
+                  <div class="accounts-field">
+                    <label>Items to Mule Off <span class="accounts-muling-hint">sent to mules each run</span></label>
+                    <div class="accounts-pot-row" data-pot-field="mule-off">
+                      <button type="button" class="accounts-pot-btn" data-pot="all">All Pots</button>
+                      <button type="button" class="accounts-pot-btn" data-pot="atk">ATK</button>
+                      <button type="button" class="accounts-pot-btn" data-pot="def">DEF</button>
+                      <button type="button" class="accounts-pot-btn" data-pot="spd">SPD</button>
+                      <button type="button" class="accounts-pot-btn" data-pot="dex">DEX</button>
+                      <button type="button" class="accounts-pot-btn" data-pot="vit">VIT</button>
+                      <button type="button" class="accounts-pot-btn" data-pot="wis">WIS</button>
+                      <button type="button" class="accounts-pot-btn" data-pot="life">LIFE</button>
+                      <button type="button" class="accounts-pot-btn" data-pot="mana">MANA</button>
+                    </div>
+                    <input type="text" id="accounts-muling-items-mule-off" placeholder="Custom item IDs (comma-separated)" spellcheck="false">
+                  </div>
+                </div>
+                <div id="accounts-muling-mule-opts" class="accounts-muling-sub" style="display:none;">
+                  <div class="accounts-field">
+                    <label>Store Mode</label>
+                    <div class="accounts-muling-mode-row">
+                      <button type="button" id="accounts-mode-any" class="accounts-role-btn" data-mode="any">Any Item</button>
+                      <button type="button" id="accounts-mode-specific" class="accounts-role-btn" data-mode="specific">Specific Items</button>
+                    </div>
+                  </div>
+                  <div id="accounts-muling-items-wrap" class="accounts-muling-sub" style="display:none;">
+                    <div class="accounts-field">
+                      <label>Items to Deposit <span class="accounts-muling-hint">into main's vault</span></label>
+                      <div class="accounts-pot-row" data-pot-field="store">
+                        <button type="button" class="accounts-pot-btn" data-pot="all">All Pots</button>
+                        <button type="button" class="accounts-pot-btn" data-pot="atk">ATK</button>
+                        <button type="button" class="accounts-pot-btn" data-pot="def">DEF</button>
+                        <button type="button" class="accounts-pot-btn" data-pot="spd">SPD</button>
+                        <button type="button" class="accounts-pot-btn" data-pot="dex">DEX</button>
+                        <button type="button" class="accounts-pot-btn" data-pot="vit">VIT</button>
+                        <button type="button" class="accounts-pot-btn" data-pot="wis">WIS</button>
+                        <button type="button" class="accounts-pot-btn" data-pot="life">LIFE</button>
+                        <button type="button" class="accounts-pot-btn" data-pot="mana">MANA</button>
+                      </div>
+                      <input type="text" id="accounts-muling-items-store" placeholder="Custom item IDs (comma-separated)" spellcheck="false">
+                    </div>
+                  </div>
+                  <div class="accounts-field">
+                    <label>Receive from Main <span class="accounts-muling-hint">taken from main's vault</span></label>
+                    <div class="accounts-pot-row" data-pot-field="from-main">
+                      <button type="button" class="accounts-pot-btn" data-pot="all">All Pots</button>
+                      <button type="button" class="accounts-pot-btn" data-pot="atk">ATK</button>
+                      <button type="button" class="accounts-pot-btn" data-pot="def">DEF</button>
+                      <button type="button" class="accounts-pot-btn" data-pot="spd">SPD</button>
+                      <button type="button" class="accounts-pot-btn" data-pot="dex">DEX</button>
+                      <button type="button" class="accounts-pot-btn" data-pot="vit">VIT</button>
+                      <button type="button" class="accounts-pot-btn" data-pot="wis">WIS</button>
+                      <button type="button" class="accounts-pot-btn" data-pot="life">LIFE</button>
+                      <button type="button" class="accounts-pot-btn" data-pot="mana">MANA</button>
+                    </div>
+                    <input type="text" id="accounts-muling-items-from-main" placeholder="Custom item IDs (comma-separated)" spellcheck="false">
+                  </div>
+                </div>
+              </div>
+
+              <div class="acct-section">
+                <div class="acct-section-head"><span class="acct-section-title">Proxy</span></div>
+                <div class="accounts-field">
+                  <label for="accounts-proxy">Host:Port <span class="accounts-muling-hint">optional</span></label>
+                  <input type="text" id="accounts-proxy" placeholder="e.g. 127.0.0.1:1080" autocomplete="off" spellcheck="false">
+                </div>
+                <div id="accounts-proxy-auth-wrap" class="accounts-muling-sub" style="display:none;">
+                  <div class="accounts-field">
+                    <label for="accounts-proxy-username">Proxy Username</label>
+                    <input type="text" id="accounts-proxy-username" placeholder="Optional" autocomplete="off" spellcheck="false">
+                  </div>
+                  <div class="accounts-field">
+                    <label for="accounts-proxy-password">Proxy Password</label>
+                    <input type="password" id="accounts-proxy-password" placeholder="Optional" autocomplete="new-password">
+                  </div>
+                </div>
+              </div>
+
+            </div><!-- /automation tab -->
+
+            <!-- Overview tab -->
+            <div class="accounts-editor-tab-panel accounts-overview-section" id="accounts-editor-overview-panel" style="display:none;">
+              <div class="accounts-overview-toolbar">
+                <div>
+                  <div class="accounts-overview-title" data-i18n="accounts.overview.title">Character Overview</div>
+                  <div id="accounts-overview-summary" class="accounts-overview-summary" data-i18n="accounts.overview.summary.pickChars">Select an account to inspect its characters.</div>
+                </div>
+                <div class="accounts-overview-toolbar-actions">
+                  <button id="accounts-overview-refresh-btn" class="setting-btn setting-btn-secondary" data-i18n="accounts.overview.refreshAccount">Refresh Account</button>
+                </div>
+              </div>
+              <div id="accounts-overview-status" class="accounts-overview-status"></div>
+              <div id="accounts-overview-tabs" class="accounts-overview-tabs">
+                <button type="button" class="accounts-overview-tab active" data-accounts-overview-tab="characters" data-i18n="accounts.overview.tab.chars">Characters</button>
+                <button type="button" class="accounts-overview-tab" data-accounts-overview-tab="vault" data-i18n="accounts.overview.tab.vault">Vault</button>
+                <button type="button" class="accounts-overview-tab" data-accounts-overview-tab="gifts" data-i18n="accounts.overview.tab.gifts">Gifts</button>
+                <button type="button" class="accounts-overview-tab" data-accounts-overview-tab="potions" data-i18n="accounts.overview.tab.potions">Potions</button>
+                <button type="button" class="accounts-overview-tab" data-accounts-overview-tab="totals" data-i18n="accounts.overview.tab.totals">Total Inventory</button>
+                <button type="button" class="accounts-overview-tab" data-accounts-overview-tab="sessions" data-i18n="accounts.overview.tab.sessions">Sessions</button>
+              </div>
+              <!-- Session history panel — rendered separately from the
+                   character / item browser so it can have its own layout
+                   without conflicting with `.accounts-overview-layout`. -->
+              <div id="accounts-sessions-panel" class="accounts-sessions-panel" style="display:none;"></div>
+              <div id="accounts-overview-layout" class="accounts-overview-layout">
+                <div class="accounts-characters-panel">
+                  <div id="accounts-characters-list" class="accounts-characters-list"></div>
+                  <div id="accounts-characters-empty" class="empty-state" data-i18n="accounts.overview.emptyChars">No character data loaded.</div>
+                </div>
+                <div id="accounts-character-detail" class="accounts-character-detail">
+                  <div class="accounts-character-placeholder" data-i18n="accounts.overview.selectChar">Select a character to inspect its equipment and stats.</div>
+                </div>
+              </div>
+            </div><!-- /overview tab -->
+
+            <!-- Sticky save bar (always visible) -->
+            <div class="accounts-form-footer">
+              <button type="button" id="accounts-save-btn" class="accounts-save-inline-btn setting-btn" disabled data-i18n="accounts.btn.saveChanges">Save Changes</button>
+              <span id="accounts-status" class="accounts-status"></span>
+            </div>
+
+          </div>
+        </div>
+        </div><!-- /accounts-main -->
+        <!-- Right-click context menu for account cards -->
+        <div id="accounts-card-ctx-menu" class="accounts-card-ctx-menu" style="display:none;" role="menu">
+          <button type="button" class="accounts-ctx-item" data-card-action="start-muling">&#9654; Start Muling</button>
+          <button type="button" class="accounts-ctx-item" data-card-action="edit">Edit</button>
+          <button type="button" class="accounts-ctx-item" data-card-action="duplicate">Duplicate</button>
+          <button type="button" class="accounts-ctx-item accounts-ctx-item--danger" data-card-action="delete">Delete</button>
+        </div>
+        <!-- Delete confirmation modal -->
+        <div id="accounts-delete-modal" class="accounts-modal-overlay" style="display:none;">
+          <div class="accounts-modal-backdrop"></div>
+          <div class="accounts-modal-panel">
+            <div class="accounts-modal-title" data-i18n="accounts.modal.delete.title">Delete Account</div>
+            <div id="accounts-delete-modal-msg" class="accounts-modal-msg" data-i18n="accounts.modal.delete.msg">Are you sure you want to delete this account?</div>
+            <div class="accounts-modal-actions">
+              <button id="accounts-delete-confirm-btn" class="setting-btn accounts-modal-danger-btn" data-i18n="accounts.modal.delete.confirm">Delete</button>
+              <button id="accounts-delete-cancel-btn" class="setting-btn setting-btn-secondary" data-i18n="btn.cancel">Cancel</button>
+            </div>
+          </div>
+        </div>
+        <!-- Edit-locked modal -->
+        <div id="accounts-locked-modal" class="accounts-modal-overlay" style="display:none;">
+          <div class="accounts-modal-backdrop"></div>
+          <div class="accounts-modal-panel">
+            <div class="accounts-modal-title" data-i18n="accounts.modal.locked.title">Account In Use</div>
+            <div class="accounts-modal-msg" data-i18n="accounts.modal.locked.msg">You must disconnect from the game before editing this account.</div>
+            <div class="accounts-modal-actions">
+              <button id="accounts-locked-ok-btn" class="setting-btn" data-i18n="accounts.modal.locked.ok">OK</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-logs" class="tab-panel admin-only" style="display:none;">
+        <div class="objects-toolbar">
+          <button id="logs-clear-btn" class="setting-btn setting-btn-secondary">Clear Logs</button>
+        </div>
+        <div id="logs-list" class="logs-list"></div>
+        <div id="logs-empty" class="empty-state">No logs yet.</div>
+      </div>
+
+      <div id="tab-packet-lab" class="tab-panel admin-only" style="display:none;">
+        <div class="lab-subtabs-row">
+          <div class="lab-subtabs">
+            <button type="button" class="lab-subtab active" data-lab-subtab="working">Working</button>
+            <button type="button" class="lab-subtab" data-lab-subtab="need-work">Need work</button>
+            <button type="button" class="lab-subtab" data-lab-subtab="unknowns">Unknowns</button>
+            <button type="button" class="lab-subtab" data-lab-subtab="byte-tool">Byte tool</button>
+          </div>
+          <div id="lab-packet-toolbar" class="lab-packet-toolbar">
+            <div id="lab-packet-search-wrap" class="lab-packet-search-wrap">
+              <input type="search" id="lab-packet-search" class="lab-packet-search" placeholder="Search name or id…" autocomplete="off" spellcheck="false" />
+            </div>
+            <div id="lab-defined-filter-wrap" class="lab-defined-filter-wrap hidden">
+              <label class="lab-filter-label" for="lab-defined-direction">Direction</label>
+              <select id="lab-defined-direction" class="lab-filter-select">
+                <option value="all">All</option>
+                <option value="incoming">Incoming (S→C)</option>
+                <option value="outgoing">Outgoing (C→S)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div id="lab-panel-working" class="lab-panel">
+          <div class="lab-body">
+            <div class="lab-types" id="lab-defined-list-working"><div class="lab-empty">Loading...</div></div>
+            <div class="lab-detail" id="lab-defined-detail-working"><div class="lab-empty">Select a packet to view structure.</div></div>
+          </div>
+        </div>
+        <div id="lab-panel-need-work" class="lab-panel hidden">
+          <div class="lab-body">
+            <div class="lab-types" id="lab-defined-list-need-work"><div class="lab-empty">Loading...</div></div>
+            <div class="lab-detail" id="lab-defined-detail-need-work"><div class="lab-empty">Select a packet to view structure.</div></div>
+          </div>
+        </div>
+        <div id="lab-panel-unknowns" class="lab-panel hidden">
+          <div class="lab-probe-bar">
+            <input id="lab-id" placeholder="ID or name (e.g. 169, REALMSCORE)" />
+            <input id="lab-spec" placeholder='Field spec (e.g. "int32" or "string compressedInt")' />
+            <button id="lab-probe-btn">Probe</button>
+          </div>
+          <div class="lab-body">
+            <div class="lab-types" id="lab-type-list"><div class="lab-empty">No unknown packets captured yet.</div></div>
+            <div class="lab-detail" id="lab-detail"><div class="lab-empty">Select a packet type to analyze.</div></div>
+          </div>
+        </div>
+        <div id="lab-panel-byte-tool" class="lab-panel hidden">
+          <div class="lab-byte-tool-bar">
+            <input id="lab-byte-input" placeholder="Paste big-endian packet bytes (hex). Example: 00 11 7F A3 40 49 0F DB" />
+            <button id="lab-byte-load-btn">Load</button>
+            <button id="lab-byte-clear-btn" class="lab-byte-clear">Clear selection</button>
+          </div>
+          <div class="lab-byte-tool-main">
+            <div id="lab-byte-grid" class="lab-byte-grid">
+              <div class="lab-empty">Paste bytes above and press Enter or click Load.</div>
+            </div>
+            <div class="lab-byte-meta">
+              <span id="lab-byte-selection">Selection: none</span>
+              <span class="lab-byte-meta-sep">|</span>
+              <span id="lab-byte-count">Total bytes: 0</span>
+            </div>
+            <div id="lab-byte-results" class="lab-byte-results"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-multibox" class="tab-panel admin-only multibox-tab coming-soon" data-coming-soon="Coming soon&#10;&#10;Multiboxing is in active development and will be available in a future update." style="display:none;">
+        <div class="multibox-toolbar">
+          <div class="multibox-toolbar-text">
+            <span class="multibox-toolbar-title" data-i18n="multibox.toolbar.title">Multibox layout</span>
+            <span class="multibox-toolbar-hint" data-i18n="multibox.toolbar.hint">Placeholder tiles — drag a panel to move, drag the corner to resize. Presets approximate tools like KronkBoxer: large focus window top-right, narrow stack on the left, extras along the bottom.</span>
+          </div>
+          <button type="button" id="multibox-add-client" class="setting-btn multibox-add-btn" data-i18n="multibox.addClient">Add client</button>
+        </div>
+        <div class="multibox-presets" role="group" aria-labelledby="multibox-presets-label">
+          <span id="multibox-presets-label" class="multibox-presets-label" data-i18n="multibox.presets.label">Layout presets</span>
+          <div class="multibox-presets-btns">
+            <button type="button" class="setting-btn setting-btn-secondary multibox-preset-btn" data-multibox-preset="4" data-i18n-title="multibox.presetTitle4">4</button>
+            <button type="button" class="setting-btn setting-btn-secondary multibox-preset-btn multibox-preset-btn--primary" data-multibox-preset="6" data-i18n-title="multibox.presetTitle6">6</button>
+            <button type="button" class="setting-btn setting-btn-secondary multibox-preset-btn" data-multibox-preset="8" data-i18n-title="multibox.presetTitle8">8</button>
+          </div>
+        </div>
+        <div id="multibox-stage" class="multibox-stage" aria-label="Placeholder multibox layout">
+          <div id="multibox-empty" class="multibox-empty hidden" data-i18n="multibox.empty">No clients. Click Add client to create a placeholder window.</div>
+          <div class="multibox-window" data-client-index="1" style="left:24px;top:28px;width:220px;height:160px;">
+            <div class="multibox-window-head">
+              <span class="multibox-window-title">Client 1</span>
+              <button type="button" class="multibox-window-remove" data-i18n-aria-label="multibox.removeClient" data-i18n-title="multibox.removeClient">&times;</button>
+            </div>
+            <div class="multibox-window-body"><span data-i18n="multibox.placeholder">Placeholder</span></div>
+            <div class="multibox-resize-handle" tabindex="-1" aria-hidden="true" title="Resize"></div>
+          </div>
+          <div class="multibox-window" data-client-index="2" style="left:264px;top:48px;width:200px;height:140px;">
+            <div class="multibox-window-head">
+              <span class="multibox-window-title">Client 2</span>
+              <button type="button" class="multibox-window-remove" data-i18n-aria-label="multibox.removeClient" data-i18n-title="multibox.removeClient">&times;</button>
+            </div>
+            <div class="multibox-window-body"><span data-i18n="multibox.placeholder">Placeholder</span></div>
+            <div class="multibox-resize-handle" tabindex="-1" aria-hidden="true" title="Resize"></div>
+          </div>
+          <div class="multibox-window" data-client-index="3" style="left:120px;top:220px;width:260px;height:120px;">
+            <div class="multibox-window-head">
+              <span class="multibox-window-title">Client 3</span>
+              <button type="button" class="multibox-window-remove" data-i18n-aria-label="multibox.removeClient" data-i18n-title="multibox.removeClient">&times;</button>
+            </div>
+            <div class="multibox-window-body"><span data-i18n="multibox.placeholder">Placeholder</span></div>
+            <div class="multibox-resize-handle" tabindex="-1" aria-hidden="true" title="Resize"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-mem-helper" class="tab-panel admin-only mem-helper-tab" style="display:none;">
+        <div class="mem-helper-live-wrap">
+          <div class="mem-helper-live-toolbar">
+            <button type="button" class="setting-btn" id="mem-helper-exalt-refresh" data-i18n="memHelper.live.refresh">Refresh</button>
+            <button type="button" class="setting-btn setting-btn-accent" id="mem-helper-apply-all-roles" data-i18n="memHelper.live.applyRoles">Apply client roles</button>
+            <button type="button" class="setting-btn" id="mem-helper-run-multibox-policy" data-i18n="memHelper.live.runPolicy">Apply multibox policy</button>
+            <button type="button" class="setting-btn" id="mem-helper-restore-all" data-i18n="memHelper.live.restoreAll">Restore all clients</button>
+            <button type="button" class="setting-btn" id="mem-helper-restore-balanced" data-i18n="memHelper.live.restoreBalanced">Restore + Balanced power</button>
+            <button type="button" class="setting-btn setting-btn-danger" id="mem-helper-kill-msedge" data-i18n="memHelper.live.killMsEdge">Kill all Edge</button>
+            <span id="mem-helper-toolbar-flash" class="mem-helper-toolbar-flash mem-helper-muted" aria-live="polite"></span>
+            <span id="mem-helper-live-meta" class="mem-helper-live-meta" aria-live="polite"></span>
+            <span id="mem-helper-tune-statusline" class="mem-helper-live-meta" aria-live="polite"></span>
+          </div>
+
+          <div class="mem-helper-tune-panel" id="mem-helper-tune-panel">
+            <div class="mem-helper-tune-row mem-helper-tune-row--wrap">
+              <span class="mem-helper-tune-label" data-i18n="memHelper.tune.presetProfile">Profile</span>
+              <button type="button" class="setting-btn" data-tuning-preset="safe" data-i18n="memHelper.tune.preset.safe">Safe</button>
+              <button type="button" class="setting-btn" data-tuning-preset="balanced" data-i18n="memHelper.tune.preset.balanced">Balanced</button>
+              <button type="button" class="setting-btn" data-tuning-preset="multibox" data-i18n="memHelper.tune.preset.multibox">Multibox</button>
+              <button type="button" class="setting-btn" data-tuning-preset="aggressive" data-i18n="memHelper.tune.preset.aggressive">Aggressive</button>
+              <button type="button" class="setting-btn" data-tuning-preset="lowHeat" data-i18n="memHelper.tune.preset.lowHeat">Laptop / low heat</button>
+            </div>
+            <p class="mem-helper-wd-desc" data-i18n="memHelper.tune.presetHint">Profile click now applies live policy (priority/affinity/EcoQoS) and can also update smart-trim defaults.</p>
+            <details class="mem-helper-advanced-details" id="mem-helper-advanced">
+              <summary class="mem-helper-advanced-summary" data-i18n="memHelper.tune.advanced">Advanced tuning</summary>
+              <div class="mem-helper-advanced-inner">
+            <div class="mem-helper-tune-row mem-helper-tune-row--wrap">
+              <label class="mem-helper-tune-check-inline"><input type="checkbox" id="mem-helper-restore-baseline-on-exit" /><span data-i18n="memHelper.tune.restoreBaselineExit">Restore captured priority / affinity (+ power scheme) when closing this dashboard (opt-in).</span></label>
+              <button type="button" class="setting-btn" id="mem-helper-recapture-baseline" data-i18n="memHelper.tune.recaptureBaseline">Recapture baseline</button>
+              <button type="button" class="setting-btn" id="mem-helper-restore-baseline-now" data-i18n="memHelper.tune.restoreBaselineNow">Restore baseline now</button>
+            </div>
+            <div class="mem-helper-tune-row">
+              <span class="mem-helper-tune-label" data-i18n="memHelper.tune.applyPriority">Apply now (all Exalt.exe)</span>
+              <button type="button" class="setting-btn" data-exalt-prio="Normal" data-i18n="memHelper.tune.norm">Normal</button>
+              <button type="button" class="setting-btn" data-exalt-prio="BelowNormal" data-i18n="memHelper.tune.below">Below normal</button>
+              <button type="button" class="setting-btn" data-exalt-prio="AboveNormal" data-i18n="memHelper.tune.above">Above normal</button>
+              <button type="button" class="setting-btn" data-exalt-prio="High" data-i18n="memHelper.tune.high">High</button>
+              <button type="button" class="setting-btn" id="mem-helper-spread-cores" data-i18n="memHelper.tune.spread">Spread CPUs</button>
+            </div>
+            <div class="mem-helper-tune-row">
+              <span class="mem-helper-tune-label" data-i18n="memHelper.tune.powerPlan">Power plan</span>
+              <select id="mem-helper-power-plan-select" class="settings-select" aria-label="Power scheme"></select>
+              <button type="button" class="setting-btn" id="mem-helper-power-plan-refresh" data-i18n="memHelper.tune.refreshPlans">Refresh plans</button>
+              <button type="button" class="setting-btn" id="mem-helper-power-plan-activate" data-i18n="memHelper.tune.activatePlan">Activate</button>
+            </div>
+            <div class="mem-helper-tune-row mem-helper-tune-row--split">
+              <div class="mem-helper-tune-pair">
+                <span data-i18n="memHelper.tune.idlePri">Saved idle priority</span>
+                <select id="mem-helper-idle-priority" class="settings-select"><option value="Idle">Idle</option><option value="BelowNormal">Below normal</option><option value="Normal">Normal</option><option value="AboveNormal">Above normal</option><option value="High">High</option></select>
+              </div>
+              <div class="mem-helper-tune-pair">
+                <span data-i18n="memHelper.tune.hotPri">Watchdog hot priority</span>
+                <select id="mem-helper-hot-priority" class="settings-select"><option value="Idle">Idle</option><option value="BelowNormal">Below normal</option><option value="Normal">Normal</option><option value="AboveNormal">Above normal</option><option value="High">High</option></select>
+              </div>
+              <label class="mem-helper-tune-check-inline"><input type="checkbox" id="mem-helper-auto-apply-start" /><span data-i18n="memHelper.tune.autoApply">Apply saved idle priority + startup plan when proxy starts</span></label>
+              <div class="mem-helper-tune-pair">
+                <span data-i18n="memHelper.tune.startupPlan">Startup power plan</span>
+                <select id="mem-helper-startup-plan" class="settings-select"><option value="">—</option></select>
+              </div>
+              <div class="mem-helper-tune-pair">
+                <span data-i18n="memHelper.tune.hotPlanGuid">Hot plan</span>
+                <select id="mem-helper-hot-plan" class="settings-select"><option value="">—</option></select>
+              </div>
+              <div class="mem-helper-tune-pair">
+                <span data-i18n="memHelper.tune.idlePlanGuid">Cooldown plan</span>
+                <select id="mem-helper-idle-plan-select" class="settings-select"><option value="">—</option></select>
+              </div>
+              <button type="button" class="setting-btn setting-btn-accent" id="mem-helper-save-settings" data-i18n="memHelper.tune.saveSettings">Save settings</button>
+              <span id="mem-helper-settings-status" class="mem-helper-settings-status" role="status"></span>
+            </div>
+            <fieldset class="mem-helper-wd-fieldset">
+              <legend data-i18n="memHelper.tune.watchdogTitle">CPU watchdog</legend>
+              <p class="mem-helper-wd-desc" data-i18n="memHelper.tune.watchdogDesc">When the sum of every RotMG Exalt.exe CPU% stays above the threshold, Realm Engine can raise priority and switch power plans; when it cools off, it restores your saved idle profile.</p>
+              <div class="mem-helper-tune-row mem-helper-tune-row--wrap">
+                <label class="mem-helper-tune-check-inline"><input type="checkbox" id="mem-helper-wd-enabled" /><span data-i18n="memHelper.tune.wdEnable">Enabled</span></label>
+                <select id="mem-helper-wd-cpu-metric" class="settings-select" title="Σ raw can exceed 100%/core; normalized divides by logical CPUs.">
+                  <option value="normalized" data-i18n="memHelper.tune.metricNorm">Σ normalized (~system share)</option>
+                  <option value="raw" data-i18n="memHelper.tune.metricRaw">Σ raw (Perf counters)</option>
+                </select>
+                <span id="mem-helper-wd-threshold-span">Σ÷LP ≥ </span>
+                <input type="number" id="mem-helper-wd-threshold" class="setting-input-num" min="0" step="1" />
+                <span data-i18n="memHelper.tune.wdHotMs">Hot debounce (ms)</span>
+                <input type="number" id="mem-helper-wd-hot-ms" class="setting-input-num" min="500" step="500" />
+                <span data-i18n="memHelper.tune.wdCoolMs">Cool debounce (ms)</span>
+                <input type="number" id="mem-helper-wd-cool-ms" class="setting-input-num" min="2000" step="1000" />
+              </div>
+              <div class="mem-helper-tune-row mem-helper-tune-row--wrap">
+                <label class="mem-helper-tune-check-inline"><input type="checkbox" id="mem-helper-wd-hot-plan" /><span data-i18n="memHelper.tune.wdHotPlan">Activate hot plan</span></label>
+                <label class="mem-helper-tune-check-inline"><input type="checkbox" id="mem-helper-wd-hot-pri" /><span data-i18n="memHelper.tune.wdHotPri">Set hot priority</span></label>
+                <label class="mem-helper-tune-check-inline"><input type="checkbox" id="mem-helper-wd-hot-spread" /><span data-i18n="memHelper.tune.wdHotSpread">Spread cores on hot</span></label>
+                <label class="mem-helper-tune-check-inline"><input type="checkbox" id="mem-helper-wd-cool-plan" /><span data-i18n="memHelper.tune.wdCoolPlan">Restore cooldown plan</span></label>
+                <label class="mem-helper-tune-check-inline"><input type="checkbox" id="mem-helper-wd-cool-pri" /><span data-i18n="memHelper.tune.wdCoolPri">Restore idle priority</span></label>
+              </div>
+            </fieldset>
+
+            <fieldset class="mem-helper-wd-fieldset">
+              <legend data-i18n="memHelper.tune.thermalTitle">Thermal stress (advanced)</legend>
+              <p class="mem-helper-wd-desc" data-i18n="memHelper.tune.thermalDesc">
+                Uses WMI ACPI thermal zones plus CPU “% of maximum frequency”; when readings stay stressed, background
+                clients are tightened beyond normal multibox rules until sensors stay clear (may not work on desktops
+                without thermal WMI).
+              </p>
+              <div class="mem-helper-tune-row mem-helper-tune-row--wrap">
+                <label class="mem-helper-tune-check-inline"><input type="checkbox" id="mem-helper-thermal-en" /><span data-i18n="memHelper.tune.thermalEn">Enabled</span></label>
+                <span data-i18n="memHelper.tune.thermalTempThr">Pkg °C ≥</span>
+                <input type="number" id="mem-helper-thermal-temp-thresh" class="setting-input-num" min="40" max="110" step="1" />
+                <span data-i18n="memHelper.tune.thermalTempClr">Clear ≤ °C</span>
+                <input type="number" id="mem-helper-thermal-temp-clear" class="setting-input-num" min="35" max="105" step="1" />
+                <span data-i18n="memHelper.tune.thermalSus">Sustain (ms)</span>
+                <input type="number" id="mem-helper-thermal-sustain-ms" class="setting-input-num" min="3000" step="1000" />
+                <span data-i18n="memHelper.tune.thermalClr">Clear (ms)</span>
+                <input type="number" id="mem-helper-thermal-clear-ms" class="setting-input-num" min="3000" step="1000" />
+              </div>
+              <div class="mem-helper-tune-row mem-helper-tune-row--wrap">
+                <span data-i18n="memHelper.tune.thermalFreqLow">Min freq % ≤ (empty = ignore)</span>
+                <input type="number" id="mem-helper-thermal-freq-low" class="setting-input-num" min="0" max="100" step="1" placeholder="" />
+                <span data-i18n="memHelper.tune.thermalFreqClr">Clear freq % ≥</span>
+                <input type="number" id="mem-helper-thermal-freq-clear" class="setting-input-num" min="0" max="100" step="1" placeholder="" />
+                <span data-i18n="memHelper.tune.thermalDemote">Demote BG to</span>
+                <select id="mem-helper-thermal-demote-prio" class="settings-select" title="">
+                  <option value="BelowNormal">BelowNormal</option>
+                  <option value="Idle">Idle</option>
+                </select>
+              </div>
+            </fieldset>
+
+          <div class="mem-helper-smart-panel" id="mem-helper-smart-panel">
+            <fieldset class="mem-helper-st-fieldset">
+              <legend data-i18n="memHelper.smart.proxyTitle">Automated proxy / bot-client trim</legend>
+              <p class="mem-helper-st-desc" data-i18n="memHelper.smart.proxyDesc">Clears packet sniffer + Packet Lab buffers (and optionally GC hints) when Node RSS or packet rate stays high.</p>
+              <div class="mem-helper-tune-row mem-helper-tune-row--wrap">
+                <label class="mem-helper-tune-check-inline"><input type="checkbox" id="mem-helper-st-proxy-en" /><span data-i18n="memHelper.smart.en">Enabled</span></label>
+                <span data-i18n="memHelper.smart.proxyRss">RSS ≥ (MB)</span>
+                <input type="number" id="mem-helper-st-proxy-rss-mb" class="setting-input-num" min="64" step="16" />
+                <span data-i18n="memHelper.smart.proxyRate">Pkt/s ≥ (0 = off)</span>
+                <input type="number" id="mem-helper-st-proxy-rate" class="setting-input-num" min="0" step="50" />
+                <span data-i18n="memHelper.smart.checkSec">Check every (s)</span>
+                <input type="number" id="mem-helper-st-proxy-check-s" class="setting-input-num" min="5" step="5" />
+                <span data-i18n="memHelper.smart.minSec">Min between trims (s)</span>
+                <input type="number" id="mem-helper-st-proxy-min-s" class="setting-input-num" min="10" step="5" />
+              </div>
+              <div class="mem-helper-tune-row mem-helper-tune-row--wrap">
+                <label class="mem-helper-tune-check-inline"><input type="checkbox" id="mem-helper-st-proxy-packets" /><span data-i18n="memHelper.smart.trimPk">Trim sniffer</span></label>
+                <label class="mem-helper-tune-check-inline"><input type="checkbox" id="mem-helper-st-proxy-lab" /><span data-i18n="memHelper.smart.trimLab">Trim Packet Lab</span></label>
+                <label class="mem-helper-tune-check-inline"><input type="checkbox" id="mem-helper-st-proxy-world" /><span data-i18n="memHelper.smart.trimWorld">Trim world snapshot (risky)</span></label>
+                <label class="mem-helper-tune-check-inline"><input type="checkbox" id="mem-helper-st-proxy-gc" /><span data-i18n="memHelper.smart.trimGc">Call GC (--expose-gc)</span></label>
+              </div>
+            </fieldset>
+            <fieldset class="mem-helper-st-fieldset" id="mem-helper-st-exalt-fieldset">
+              <legend data-i18n="memHelper.smart.exaltTitle">Automated RotMG Exalt.exe trim</legend>
+              <p class="mem-helper-st-desc" data-i18n="memHelper.smart.exaltDesc">Windows EmptyWorkingSet on every Exalt process when RAM use is large, or on a schedule.</p>
+              <div class="mem-helper-tune-row mem-helper-tune-row--wrap">
+                <label class="mem-helper-tune-check-inline"><input type="checkbox" id="mem-helper-st-exalt-en" /><span data-i18n="memHelper.smart.en">Enabled</span></label>
+                <span data-i18n="memHelper.smart.exaltWsGb">RAM / client ≥ (GB)</span>
+                <input type="number" id="mem-helper-st-exalt-ws-gb" class="setting-input-num" min="0" step="0.25" />
+                <label class="mem-helper-tune-check-inline"><input type="checkbox" id="mem-helper-st-exalt-periodic" /><span data-i18n="memHelper.smart.exaltPeriodic">Also trim on interval below threshold</span></label>
+                <span data-i18n="memHelper.smart.checkSec">Check every (s)</span>
+                <input type="number" id="mem-helper-st-exalt-check-s" class="setting-input-num" min="5" step="5" />
+                <span data-i18n="memHelper.smart.minSec">Min between trims (s)</span>
+                <input type="number" id="mem-helper-st-exalt-min-s" class="setting-input-num" min="15" step="15" />
+                <button type="button" class="setting-btn" id="mem-helper-st-exalt-once" data-i18n="memHelper.smart.exaltOnce">Trim Exalt WS now</button>
+              </div>
+              <div class="mem-helper-tune-row mem-helper-tune-row--wrap">
+                <label class="mem-helper-tune-check-inline"><input type="checkbox" id="mem-helper-st-exalt-trim-parent" /><span data-i18n="memHelper.smart.trimLauncher">Trim launcher</span></label>
+                <label class="mem-helper-tune-check-inline"><input type="checkbox" id="mem-helper-st-exalt-trim-child" /><span data-i18n="memHelper.smart.trimPlayer">Trim Unity player</span></label>
+              </div>
+              <div class="mem-helper-tune-row mem-helper-tune-row--wrap">
+                <span data-i18n="memHelper.smart.sysMemPct">System RAM load ≥ (%)</span>
+                <input type="number" id="mem-helper-st-exalt-mem-pct" class="setting-input-num" min="0" max="100" step="1" />
+                <span data-i18n="memHelper.smart.skipCpu">Skip trim if client CPU % &gt;</span>
+                <input type="number" id="mem-helper-st-exalt-max-cpu" class="setting-input-num" min="0" max="500" step="1" />
+                <span data-i18n="memHelper.smart.minWsGbExtra">Min client RAM trim floor (GB)</span>
+                <input type="number" id="mem-helper-st-exalt-minws-gb" class="setting-input-num" min="0" step="0.25" />
+              </div>
+            </fieldset>
+            <div class="mem-helper-tune-row">
+              <button type="button" class="setting-btn setting-btn-accent" id="mem-helper-smart-save" data-i18n="memHelper.smart.save">Save smart trim</button>
+              <span id="mem-helper-smart-status" class="mem-helper-settings-status" role="status"></span>
+            </div>
+          </div>
+              </div>
+            </details>
+          </div>
+
+          <p id="mem-helper-win-unsupported" class="mem-helper-warn hidden"></p>
+          <div class="mem-helper-table-scroll">
+            <table class="mem-helper-live-table">
+              <thead>
+                <tr>
+                  <th data-i18n="memHelper.live.colExe">EXE</th>
+                  <th data-i18n="memHelper.live.colPid">PID</th>
+                  <th data-i18n="memHelper.live.colRole">Role</th>
+                  <th data-i18n="memHelper.live.colCpuRaw">CPU raw %</th>
+                  <th data-i18n="memHelper.live.colCpuEquiv">CPU ~equiv %</th>
+                  <th data-i18n="memHelper.live.colRam">RAM</th>
+                  <th data-i18n="memHelper.live.colPriority">Priority</th>
+                  <th data-i18n="memHelper.live.colAffinity">Affinity</th>
+                  <th data-i18n="memHelper.live.colTitle">Window</th>
+                  <th data-i18n="memHelper.live.colActions">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="mem-helper-exalt-tbody">
+                <tr>
+                  <td colspan="10" class="mem-helper-muted" data-i18n="memHelper.live.none">
+                    No RotMG Exalt processes detected — launch Realm or refresh.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-damage" class="tab-panel" style="display:none;">
+        <div id="damage-settings-bar"></div>
+        <div id="damage-content">
+          <div id="damage-empty" class="empty-state" data-i18n="damage.empty">No damage recorded yet. Hit something!</div>
+          <div id="damage-split" class="damage-split" style="display:none;">
+            <div class="damage-left">
+              <div class="damage-panel-title">Runs</div>
+              <div id="damage-run-list" class="damage-run-list"></div>
+            </div>
+            <div class="damage-right">
+              <div class="damage-toolbar">
+                <label class="damage-toolbar-label" for="damage-filter">Filter</label>
+                <select id="damage-filter" class="damage-select">
+                  <option value="all">All</option>
+                  <option value="boss">Boss</option>
+                  <option value="miniboss">Miniboss</option>
+                </select>
+                <label class="damage-toolbar-label" for="damage-sort">Sort</label>
+                <select id="damage-sort" class="damage-select">
+                  <option value="lastHit">Recent</option>
+                  <option value="damage">Damage</option>
+                  <option value="duration">Duration</option>
+                  <option value="name">Name</option>
+                </select>
+                <div class="damage-toolbar-spacer"></div>
+                <button id="damage-copy-image-btn" class="setting-btn damage-copy-image-btn" type="button" title="Copy RealmShark-style image to clipboard">Copy Image</button>
+                <div id="damage-context" class="damage-context"></div>
+              </div>
+              <div class="damage-right-body">
+                <div class="damage-targets">
+                  <div class="damage-panel-title">Targets</div>
+                  <div id="damage-target-list" class="damage-target-list"></div>
+                </div>
+                <div class="damage-players">
+                  <div id="damage-player-title" class="damage-panel-title">Players</div>
+                  <div id="damage-player-breakdown" class="damage-player-breakdown"></div>
+                  <div id="damage-player-detail-empty" class="damage-player-detail-empty">Click a player to view detailed stats.</div>
+                  <div id="damage-player-empty" class="empty-state">Select a target to view players.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div id="damage-player-modal-overlay" class="damage-player-modal-overlay" style="display:none;">
+            <div id="damage-player-modal" class="damage-player-modal" role="dialog" aria-modal="true" aria-label="Player Damage Details">
+              <div class="damage-player-modal-head">
+                <div class="damage-player-modal-title">Player Details</div>
+                <button id="damage-player-modal-close" class="damage-player-modal-close" type="button" aria-label="Close">x</button>
+              </div>
+              <div id="damage-player-detail" class="damage-player-detail"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-internal" class="tab-panel admin-only" style="display:none;">
+        <div class="internal-tab">
+          <div class="internal-header">
+            <span class="internal-title">Internal DLL</span>
+            <span id="internal-status-badge" class="status-badge disconnected">Disconnected</span>
+          </div>
+          <div class="internal-pipe-row">
+            <span class="internal-pipe-label">Named Pipe</span>
+            <span id="internal-pipe-path" class="internal-pipe-path">\\.\pipe\lfg-dev-bridge</span>
+          </div>
+          <div id="internal-connected-details" class="internal-details" style="display:none;">
+            <div class="internal-detail-row">
+              <span class="internal-detail-icon internal-dot connected"></span>
+              <span>Pipe authenticated — feature overrides active</span>
+            </div>
+          </div>
+          <div id="internal-disconnected-details" class="internal-details">
+            <div class="internal-detail-row">
+              <span class="internal-detail-icon internal-dot disconnected"></span>
+              <span>Waiting for DLL — launch RotMG with the DLL injected</span>
+            </div>
+          </div>
+          <div id="internal-unresolved-section" style="display:none;">
+            <div class="internal-section-label">Unresolved BeeByte Classes</div>
+            <div id="internal-unresolved-list" class="internal-unresolved-list"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-objects" class="tab-panel dev-only" style="display:none;">
+        <div class="objects-toolbar">
+          <button id="objects-refresh-btn" class="setting-btn" data-i18n="btn.refresh">Refresh</button>
+          <label class="objects-auto-refresh">
+            <input type="checkbox" id="objects-auto-refresh" class="objects-auto-refresh-input" />
+            <span class="objects-auto-refresh-switch" aria-hidden="true"></span>
+            <span class="objects-auto-refresh-label" data-i18n="objects.autoRefresh">Auto-refresh</span>
+          </label>
+        </div>
+        <div id="objects-tree" class="objects-tree"></div>
+        <div id="objects-empty" class="empty-state" data-i18n="objects.empty">No object data. Click Refresh after connecting to a server and entering a map.</div>
+      </div>
+
+      <div id="tab-tilemap" class="tab-panel dev-only" style="display:none;">
+        <div class="objects-toolbar">
+          <button id="tilemap-refresh-btn" class="setting-btn" data-i18n="btn.refresh">Refresh</button>
+          <label class="objects-auto-refresh">
+            <input type="checkbox" id="tilemap-auto-refresh" class="objects-auto-refresh-input" />
+            <span class="objects-auto-refresh-switch" aria-hidden="true"></span>
+            <span class="objects-auto-refresh-label" data-i18n="tilemap.autoRefresh">Auto-refresh</span>
+          </label>
+        </div>
+        <div id="tilemap-tree" class="objects-tree"></div>
+        <div id="tilemap-empty" class="empty-state" data-i18n="tilemap.empty">No tile data. Click Refresh after connecting to a server and entering a map.</div>
+      </div>
+
+      <div id="tab-game-wiki" class="tab-panel dev-only" style="display:none;">
+        <div class="game-wiki-root">
+          <div class="game-wiki-toolbar">
+            <nav class="game-wiki-subnav" aria-label="Game data sections">
+              <button type="button" class="game-wiki-subnav-btn active" data-game-wiki-section="objects">Objects</button>
+              <button type="button" class="game-wiki-subnav-btn" data-game-wiki-section="tiles">Tiles</button>
+              <button type="button" class="game-wiki-subnav-btn" data-game-wiki-section="effects">Effects</button>
+            </nav>
+            <input type="search" id="game-wiki-search" class="game-wiki-search" placeholder="Search…" autocomplete="off" spellcheck="false" aria-label="Search catalog" />
+            <select id="game-wiki-sort" class="game-wiki-bucket-select" aria-label="Sort by">
+              <option value="name">Name A→Z</option>
+              <option value="id">Type ID</option>
+              <option value="hp">Max HP ↓</option>
+              <option value="damage">Damage ↓</option>
+            </select>
+            <select id="game-wiki-dungeon-filter" class="game-wiki-bucket-select hidden" aria-label="Filter by dungeon">
+              <option value="">All Dungeons</option>
+            </select>
+            <button type="button" id="game-wiki-refresh-btn" class="setting-btn" title="Rebuild catalog from objects.xml / tiles.xml">Refresh</button>
+          </div>
+          <div id="game-wiki-filter-bar" class="game-wiki-filter-bar">
+            <div id="game-wiki-obj-filters" class="game-wiki-filter-chips">
+              <button type="button" class="game-wiki-filter-chip active" data-game-wiki-class="all">All</button>
+              <button type="button" class="game-wiki-filter-chip" data-game-wiki-class="enemy">Enemies</button>
+              <button type="button" class="game-wiki-filter-chip" data-game-wiki-class="projectile">Projectiles</button>
+              <button type="button" class="game-wiki-filter-chip" data-game-wiki-class="container">Containers</button>
+              <button type="button" class="game-wiki-filter-chip" data-game-wiki-class="portal">Portals</button>
+              <button type="button" class="game-wiki-filter-chip" data-game-wiki-class="player">Players</button>
+              <button type="button" class="game-wiki-filter-chip" data-game-wiki-class="wall">Walls</button>
+              <button type="button" class="game-wiki-filter-chip" data-game-wiki-class="visual">Decorations</button>
+              <button type="button" class="game-wiki-filter-chip" data-game-wiki-class="equip">Equips</button>
+              <button type="button" class="game-wiki-filter-chip" data-game-wiki-class="weapon">Weapons</button>
+              <button type="button" class="game-wiki-filter-chip" data-game-wiki-class="ability">Abilities</button>
+              <button type="button" class="game-wiki-filter-chip" data-game-wiki-class="armor">Armors</button>
+              <button type="button" class="game-wiki-filter-chip" data-game-wiki-class="ring">Rings</button>
+              <button type="button" class="game-wiki-filter-chip" data-game-wiki-class="other">Other</button>
+            </div>
+            <div id="game-wiki-tile-filters" class="game-wiki-filter-chips hidden">
+              <button type="button" class="game-wiki-filter-chip active" data-game-wiki-class="all">All</button>
+              <button type="button" class="game-wiki-filter-chip" data-game-wiki-class="Damaging">Damaging</button>
+              <button type="button" class="game-wiki-filter-chip" data-game-wiki-class="DamageAttrs">Dmg Attrs</button>
+              <button type="button" class="game-wiki-filter-chip" data-game-wiki-class="Condition">Condition</button>
+              <button type="button" class="game-wiki-filter-chip" data-game-wiki-class="Sink">Sink</button>
+              <button type="button" class="game-wiki-filter-chip" data-game-wiki-class="Speed">Speed</button>
+              <button type="button" class="game-wiki-filter-chip" data-game-wiki-class="Push">Push</button>
+              <button type="button" class="game-wiki-filter-chip" data-game-wiki-class="Slide">Slide</button>
+              <button type="button" class="game-wiki-filter-chip" data-game-wiki-class="NoWalk">No Walk</button>
+              <button type="button" class="game-wiki-filter-chip" data-game-wiki-class="Other">Other</button>
+            </div>
+          </div>
+          <div id="game-wiki-loading" class="game-wiki-loading hidden" aria-live="polite">Loading catalog…</div>
+          <div id="game-wiki-empty" class="empty-state hidden">No game data. Ensure objects.xml and tiles.xml are loaded in the proxy data folder.</div>
+          <div id="game-wiki-main" class="game-wiki-main hidden">
+            <div class="game-wiki-list-wrap">
+              <div id="game-wiki-list-meta" class="game-wiki-list-meta"></div>
+              <div id="game-wiki-scroll" class="game-wiki-scroll" tabindex="0">
+                <div id="game-wiki-list-spacer-top" class="game-wiki-list-spacer"></div>
+                <div id="game-wiki-list-rows"></div>
+                <div id="game-wiki-list-spacer-bottom" class="game-wiki-list-spacer"></div>
+              </div>
+            </div>
+            <aside id="game-wiki-detail" class="game-wiki-detail" aria-live="polite">
+              <div id="game-wiki-detail-placeholder" class="game-wiki-detail-placeholder">Select a row</div>
+              <div id="game-wiki-detail-body" class="game-wiki-detail-body hidden"></div>
+            </aside>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-api" class="tab-panel" style="display:none;">
+        <iframe class="api-docs-iframe" src="api-docs-tab.html" title="Scripting API reference"></iframe>
+      </div>
+
+      <div id="tab-scripts" class="tab-panel dev-only" style="display:none;">
+        <div id="scripts-sub-local" class="scripts-subpanel">
+          <div id="scripts-hub" class="plugin-hub plugin-trainer scripts-workspace" aria-label="Developer scripts">
+            <aside id="scripts-hub-sidebar" class="plugin-hub-sidebar">
+              <div class="plugin-hub-toolbar scripts-toolbar">
+                <div class="scripts-dir-wrap">
+                  <div class="scripts-dir-label">Local SDK scripts</div>
+                  <div id="scripts-dir-display" class="scripts-dir-display">—</div>
+                </div>
+                <div class="scripts-toolbar-actions">
+                  <button type="button" id="scripts-refresh-btn" class="setting-btn">Refresh</button>
+                  <button type="button" id="scripts-open-folder-btn" class="setting-btn setting-btn-secondary">Open folder</button>
+                </div>
+                <input id="scripts-search" class="scripts-filter-input" type="search" placeholder="Search scripts" spellcheck="false" />
+              </div>
+              <div id="scripts-list" class="plugin-sidebar-list" role="list" aria-label="Script packages"></div>
+            </aside>
+            <main id="scripts-hub-main" class="plugin-hub-main">
+              <section id="scripts-detail" class="plugin-detail scripts-detail-panel" aria-live="polite">
+                <div class="plugin-detail-header scripts-detail-header">
+                  <div>
+                    <div id="scripts-detail-title" class="plugin-detail-title">Select a script</div>
+                    <div id="scripts-detail-sub" class="plugin-detail-sub">Local packages run through ScriptHost in the proxy process.</div>
+                  </div>
+                  <div id="scripts-detail-status" class="scripts-badge scripts-badge-idle">Idle</div>
+                </div>
+                <div id="scripts-detail-body" class="scripts-detail-body">
+                  <div class="scripts-detail-empty">Select a local script to inspect its manifest, current activity, and controls.</div>
+                </div>
+                <div class="scripts-detail-actions">
+                  <button type="button" id="scripts-detail-run" class="setting-btn" disabled>Run</button>
+                  <button type="button" id="scripts-detail-pause" class="setting-btn setting-btn-secondary" disabled title="Pause/resume needs ScriptHost support">Pause</button>
+                  <button type="button" id="scripts-detail-stop" class="setting-btn setting-btn-secondary" disabled>Stop</button>
+                  <button type="button" id="scripts-detail-open-gui" class="setting-btn setting-btn-secondary" disabled title="Open the GUI this script registered via RealmEngine.ui.panel">Open GUI</button>
+                </div>
+              </section>
+              <section class="plugin-detail scripts-log-panel">
+                <div class="plugin-detail-header scripts-log-header">
+                  <div>
+                    <div class="plugin-detail-title">Log</div>
+                  </div>
+                  <div class="scripts-log-actions">
+                    <button type="button" id="scripts-log-clear" class="setting-btn setting-btn-secondary">Clear</button>
+                  </div>
+                </div>
+                <div id="scripts-log-output" class="scripts-log-output" role="log" aria-live="polite" spellcheck="false"></div>
+              </section>
+            </main>
+          </div>
+        </div>
+
+      </div>
+
+      <div id="tab-nearby" class="tab-panel dev-only" style="display:none;">
+        <div class="nearby-toolbar">
+          <button id="nearby-refresh-btn" class="setting-btn">Refresh</button>
+          <div class="nearby-toolbar-spacer"></div>
+          <label class="nearby-toolbar-label" for="nearby-sort">Sort</label>
+          <select id="nearby-sort" class="nearby-select">
+            <option value="distance">Distance</option>
+            <option value="name">Name</option>
+            <option value="hp">HP%</option>
+          </select>
+          <input id="nearby-filter" class="nearby-filter" placeholder="Filter name..." spellcheck="false" />
+        </div>
+        <div class="nearby-split">
+          <div class="nearby-left">
+            <div class="nearby-table-wrap">
+              <table class="nearby-table" id="nearby-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Dist</th>
+                    <th>HP</th>
+                    <th>MP</th>
+                    <th>Lv</th>
+                    <th>Fame</th>
+                    <th>Equipped</th>
+                  </tr>
+                </thead>
+                <tbody id="nearby-tbody"></tbody>
+              </table>
+            </div>
+            <div id="nearby-empty" class="empty-state">No nearby players.</div>
+            <div class="nearby-hint">Right click a player row to open debug.</div>
+          </div>
+          <div class="nearby-right">
+            <div class="nearby-debug-header">
+              <div class="nearby-debug-title">Player Debug</div>
+              <div id="nearby-debug-subtitle" class="nearby-debug-subtitle"></div>
+            </div>
+            <div id="nearby-debug-tree" class="objects-tree"></div>
+            <div id="nearby-debug-empty" class="empty-state">Right click a player to view details.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Settings tab: account info + the actual settings form. Content is
+           moved here from the legacy settings-overlay + account-popup-overlay
+           by JS on init so we do not duplicate the markup. -->
+      <div id="tab-settings" class="tab-panel" style="display:none;">
+        <div class="settings-popout-backdrop" data-settings-popout-close></div>
+        <div class="settings-popout-panel" role="dialog" aria-modal="true" aria-labelledby="settings-popout-title">
+          <div class="settings-popout-header">
+            <div>
+              <div class="settings-popout-kicker">Realm Engine</div>
+              <h2 id="settings-popout-title">Settings</h2>
+            </div>
+            <button type="button" id="settings-popout-close" class="settings-popout-close" aria-label="Close settings">&times;</button>
+          </div>
+          <div class="settings-popout-body">
+            <div id="settings-tab-account" class="settings-tab-account"></div>
+            <div id="settings-tab-form" class="settings-tab-form"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sniffer drawer (bottom) -->
+  <div id="sniffer-drawer" class="collapsed">
+    <div id="sniffer-header">
+      <div class="sniffer-header-left">
+        <button id="sniffer-toggle" class="sniffer-toggle-btn">&#9660;</button>
+        <span class="sniffer-title">Packet Sniffer</span>
+        <span id="sniffer-badge" class="sniffer-badge hidden">0</span>
+      </div>
+      <div class="sniffer-header-right admin-only">
+        <span id="pps">0 pkt/s</span>
+        <span id="total">0 total</span>
+        <button id="btn-pause">Pause</button>
+        <button id="btn-clear">Clear</button>
+        <button id="btn-export">Export</button>
+      </div>
+    </div>
+
+    <div id="sniffer-body">
+      <div id="sniffer-filters" class="admin-only">
+        <div class="filter-row">
+          <label><input type="checkbox" id="filter-cs" checked> C&#8594;S</label>
+          <label><input type="checkbox" id="filter-sc" checked> S&#8594;C</label>
+          <label><input type="checkbox" id="filter-hide-noisy"> Hide Noisy</label>
+          <input type="text" id="filter-search" placeholder="Search packets...">
+        </div>
+        <div id="packet-type-filters"></div>
+      </div>
+
+      <div id="sniffer-content">
+        <div id="sniffer-table-wrap">
+          <table id="packet-table">
+            <thead>
+              <tr>
+                <th class="col-time">Time</th>
+                <th class="col-dir">Dir</th>
+                <th class="col-name">Packet</th>
+                <th class="col-size">Size</th>
+              </tr>
+            </thead>
+            <tbody id="packet-body"></tbody>
+          </table>
+        </div>
+
+        <!-- Detail panel -->
+        <div id="detail-panel" class="hidden">
+          <div id="detail-header">
+            <h3 id="detail-title">Packet Details</h3>
+            <button id="detail-close">&times;</button>
+          </div>
+          <div id="detail-content">
+            <div id="detail-fields"></div>
+            <h4>Raw Hex</h4>
+            <pre id="detail-hex"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAC sidebar Launch tab: create/edit saved account groups (fixed overlay; must not live inside a hidden tab) -->
+  <div id="mac-launch-group-modal" class="accounts-modal-overlay" style="display:none;" aria-hidden="true">
+    <div class="accounts-modal-backdrop" data-mac-group-modal-close></div>
+    <div class="accounts-modal-panel mac-launch-group-modal-panel" role="dialog" aria-modal="true" aria-labelledby="mac-launch-group-modal-heading">
+      <div id="mac-launch-group-modal-heading" class="accounts-modal-title" data-i18n="mac.launch.groupsModal.newTitle">New launch group</div>
+      <label class="mac-launch-group-field-label" for="mac-launch-group-name-input" data-i18n="mac.launch.groupsModal.name">Group name</label>
+      <input type="text" id="mac-launch-group-name-input" class="mac-launch-group-name-input" maxlength="64" autocomplete="off" />
+      <div class="mac-launch-group-field-label" data-i18n="mac.launch.groupsModal.accounts">Accounts in group</div>
+      <div id="mac-launch-group-accounts-scroll" class="mac-launch-group-accounts-scroll"></div>
+      <div class="mac-launch-group-field-label" data-i18n="mac.launch.groupsModal.layoutRef">Virtual desktop (pixels)</div>
+      <div class="mac-launch-group-layout-ref-row">
+        <label class="mac-launch-group-ref-label"><span data-i18n="mac.launch.groupsLayoutW">W</span>
+          <input type="number" id="mac-launch-group-ref-w" class="mac-launch-group-ref-num" min="800" max="7680" step="1" value="1920" />
+        </label>
+        <label class="mac-launch-group-ref-label"><span data-i18n="mac.launch.groupsLayoutH">H</span>
+          <input type="number" id="mac-launch-group-ref-h" class="mac-launch-group-ref-num" min="600" max="4320" step="1" value="1080" />
+        </label>
+      </div>
+      <label class="mac-launch-group-no-overlap-row" for="mac-launch-group-no-overlap">
+        <input type="checkbox" id="mac-launch-group-no-overlap" />
+        <span data-i18n="mac.launch.groupsModal.noOverlap">Prevent overlapping tiles</span>
+      </label>
+      <p class="mac-launch-group-layout-hint" data-i18n="mac.launch.groupsModal.layoutHint">Drag and resize tiles like the Multibox tab. On Windows, Realm Engine moves each game window after launch so positions match this layout.</p>
+      <div id="mac-launch-group-layout-stage" class="mac-launch-group-layout-stage" aria-label="Per-account launch positions"></div>
+      <div class="accounts-modal-actions mac-launch-group-modal-actions">
+        <button type="button" id="mac-launch-group-delete-btn" class="setting-btn accounts-modal-danger-btn" style="display:none" data-i18n="mac.launch.groupsModal.delete">Delete group</button>
+        <span class="mac-launch-group-modal-actions-spacer"></span>
+        <button type="button" id="mac-launch-group-save-btn" class="setting-btn" data-i18n="btn.save">Save</button>
+        <button type="button" class="setting-btn setting-btn-secondary" data-mac-group-modal-close data-i18n="btn.cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings modal -->
+  <div id="settings-overlay" class="hidden">
+    <div id="settings-modal">
+      <div id="settings-header">
+        <h2 data-i18n="settings.title">Settings</h2>
+        <button id="settings-close">&times;</button>
+      </div>
+      <div id="settings-body">
+        <div class="settings-tabs" id="settings-tabs">
+          <button type="button" class="settings-tab active" data-settings-tab="visual" data-i18n="settings.tab.visual">Visual</button>
+          <button type="button" class="settings-tab" data-settings-tab="game" data-i18n="settings.tab.game">Game</button>
+          <button type="button" class="settings-tab" data-settings-tab="plugins" data-i18n="settings.tab.plugins">Plugins</button>
+          <button type="button" class="settings-tab hidden" data-settings-tab="developer" id="settings-tab-developer" data-i18n="settings.tab.developer">Developer</button>
+          <button type="button" class="settings-tab hidden" data-settings-tab="admin" id="settings-tab-admin" data-i18n="settings.tab.admin">Admin</button>
+        </div>
+        <div class="settings-tab-panels">
+          <div class="settings-tab-panel active" data-settings-panel="visual">
+            <div class="settings-group">
+              <h3 data-i18n="settings.appearance">Appearance</h3>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <span class="settings-label" data-i18n="settings.theme">Theme</span>
+                </div>
+                <select id="setting-theme-select" class="settings-select">
+                  <option value="dark">Dark</option>
+                  <option value="light">Light</option>
+                  <option value="sage">Sage</option>
+                  <option value="mist">Mist</option>
+                  <option value="forest">Forest</option>
+                  <option value="ocean">Ocean</option>
+                  <option value="ember">Ember</option>
+                </select>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <span class="settings-label" data-i18n="settings.language">Language</span>
+                </div>
+                <select id="setting-language-select" class="settings-select">
+                  <option value="en">English</option>
+                  <option value="es">Español</option>
+                  <option value="de">Deutsch</option>
+                  <option value="pt">Português</option>
+                  <option value="ja">日本語</option>
+                </select>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <span class="settings-label" data-i18n="settings.showStatBonuses">Show stat bonuses</span>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="setting-show-gear-stat-bonuses">
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <span class="settings-label" data-i18n="settings.showServerPing">Show server ping</span>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="setting-show-server-ping">
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <span class="settings-label" data-i18n="settings.showAccountEmails">Show account emails</span>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="setting-show-account-emails">
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <span class="settings-label">Show account card</span>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="setting-show-single-account-dock">
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+            <div class="settings-group">
+              <h3 data-i18n="settings.navbarTabs">Navbar Tabs</h3>
+              <div id="navbar-tabs-visibility-list" class="navbar-tabs-list"></div>
+            </div>
+            <div class="settings-group">
+              <h3 data-i18n="tutorial.settings.title">Tutorial</h3>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <span class="settings-label" data-i18n="tutorial.settings.replayLabel">Replay tutorial</span>
+                </div>
+                <button id="settings-replay-tutorial" class="setting-btn setting-btn-secondary" type="button" data-i18n="tutorial.settings.replayBtn">Replay</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-tab-panel" data-settings-panel="game">
+            <div class="settings-group">
+              <h3>Game</h3>
+              <div class="settings-row settings-row-stacked">
+                <div class="settings-row-info">
+                  <span class="settings-label">RotMG Exalt Path</span>
+                  <span class="settings-desc" id="rotmg-path-desc">Directory containing RotMG Exalt.exe</span>
+                </div>
+                <div class="settings-path-control">
+                  <input type="text" id="setting-rotmg-path" placeholder="Auto-detected" spellcheck="false">
+                  <button id="btn-save-rotmg-path" class="setting-btn">Save</button>
+                  <button id="btn-reset-rotmg-path" class="setting-btn setting-btn-secondary">Reset</button>
+                </div>
+              </div>
+            </div>
+            <div class="settings-group">
+              <h3>Plugin Configs</h3>
+              <div class="settings-row settings-row-stacked">
+                <div class="settings-row-info">
+                  <span class="settings-label">Config Profile</span>
+                  <span class="settings-desc" id="plugin-config-status">Save/load all plugin toggles and settings.</span>
+                </div>
+                <div class="settings-path-control">
+                  <select id="setting-plugin-config-select" class="settings-select"></select>
+                  <button id="btn-plugin-config-refresh" class="setting-btn setting-btn-secondary">Refresh</button>
+                  <button id="btn-plugin-config-load" class="setting-btn">Load</button>
+                </div>
+                <div class="settings-path-control">
+                  <input type="text" id="setting-plugin-config-name" placeholder="Config name" spellcheck="false">
+                  <button id="btn-plugin-config-save" class="setting-btn">Save</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-tab-panel" data-settings-panel="plugins">
+            <div class="settings-group">
+              <h3 data-i18n="settings.tab.plugins">Plugins</h3>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <span class="settings-label" data-i18n="settings.advancedPlugins">Advanced plugin settings</span>
+                  <span class="settings-desc" data-i18n="settings.advancedPluginsDesc">Show every tuning knob on each plugin. Off (default) shows only the essential settings.</span>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="setting-plugins-advanced">
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-tab-panel" data-settings-panel="developer">
+            <div class="settings-group">
+              <h3>Developer Options</h3>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <span class="settings-label">Developer Mode</span>
+                  <span class="settings-desc">Show Objects, Tilemap, Nearby Players, Scripts, and plugin debug controls.</span>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="setting-dev-mode">
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-tab-panel" data-settings-panel="admin">
+            <div class="settings-group">
+              <h3>Admin Tools</h3>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <span class="settings-label">Admin Mode</span>
+                  <span class="settings-desc">Show Logs, Packet Lab, and the Packet Sniffer.</span>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="setting-admin-mode">
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <span class="settings-label" data-i18n="settings.packetSniffer">Packet Sniffer</span>
+                  <span class="settings-desc" data-i18n="settings.packetSnifferDesc">Show or hide the bottom packet sniffer panel while Admin Mode is on.</span>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="setting-packet-sniffer-visible" checked>
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <span class="settings-label">View as user</span>
+                  <span class="settings-desc">Preview the dashboard as a non-admin user on a specific plan. Resets on reload.</span>
+                </div>
+                <select id="setting-view-as" class="settings-select">
+                  <option value="">Real account</option>
+                  <option value="free">Free user (no admin)</option>
+                  <option value="dodge">Dodge user ($10/mo tier)</option>
+                  <option value="developer">Developer user ($8/mo tier)</option>
+                </select>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <span class="settings-label">Single Client Only</span>
+                  <span class="settings-desc">Block launching if a RotMG Exalt process is already open.</span>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="setting-single-client-only">
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <span class="settings-label">Account layout</span>
+                  <span class="settings-desc">Single client sidebar, multi-account compact list (MAC), or multibox (MAC-style sidebar; Home tab reserved).</span>
+                </div>
+                <select id="setting-account-layout-mode" class="settings-select account-layout-mode-select" aria-label="Account layout">
+                  <option value="single">Single</option>
+                  <option value="mac">MAC</option>
+                  <option value="multibox">Multibox</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Splash / loading screen (shown until session restore completes) -->
+  <div id="app-splash" class="app-splash">
+    <img src="LogoWNoBackground.png" width="64" height="64" alt="Realm Engine" class="app-splash-logo" />
+    <div class="app-splash-spinner"></div>
+    <div id="app-splash-status" class="app-splash-status">Loading...</div>
+  </div>
+
+  <!-- Account panel popup (opened from sidebar account button) -->
+  <div id="account-popup-overlay" class="account-popup-overlay hidden" aria-hidden="true">
+    <div class="account-popup-backdrop" data-account-popup-close></div>
+    <div class="account-popup-panel" role="dialog" aria-modal="true" aria-labelledby="account-popup-title">
+      <!-- Header -->
+      <div class="account-popup-header">
+        <h2 id="account-popup-title" class="account-popup-title" data-i18n="accountPopup.title">Account</h2>
+        <button type="button" class="account-popup-close" data-account-popup-close aria-label="Close">&times;</button>
+      </div>
+
+      <div class="account-popup-body">
+        <!-- Profile card -->
+        <div class="acct-pop-card">
+          <div class="acct-pop-profile">
+            <div class="acct-pop-avatar" id="account-popup-avatar">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            </div>
+            <div class="acct-pop-profile-info">
+              <span class="acct-pop-email" id="account-popup-email">—</span>
+              <span class="acct-pop-member-since"><span data-i18n="accountPopup.memberSince">Member since</span> <span id="account-popup-member-since">—</span></span>
+            </div>
+          </div>
+        </div>
+
+
+        <!-- Actions -->
+      </div>
+
+      <!-- Footer -->
+      <div class="account-popup-footer">
+        <button type="button" id="account-popup-signout" class="acct-pop-signout-btn" data-i18n="accountPopup.signOut">Sign Out</button>
+      </div>
+    </div>
+  </div>
+
+<!-- First-time tutorial overlay -->
+<div id="tutorial-overlay" class="tutorial-overlay hidden">
+  <div class="tutorial-backdrop"></div>
+  <div class="tutorial-panel">
+    <!-- Step 0: Welcome -->
+    <div class="tutorial-step" data-tutorial-step="0">
+      <img class="tutorial-logo" src="LogoWNoBackground.png" width="80" height="80" alt="Realm Engine" />
+      <h1 class="tutorial-heading" data-i18n="tutorial.step0.title">Welcome to Realm Engine</h1>
+      <p class="tutorial-text" data-i18n="tutorial.step0.body">Your all-in-one companion for Realm of the Mad God. Let's take a quick tour so you know where everything is.</p>
+      <p class="tutorial-text tutorial-text-dim" data-i18n="tutorial.step0.dim">This will only take a minute.</p>
+    </div>
+
+    <!-- Step 1: Home tab -->
+    <div class="tutorial-step hidden" data-tutorial-step="1">
+      <div class="tutorial-step-badge">1 / 4</div>
+      <h2 class="tutorial-heading" data-i18n="tutorial.step1.title">Home</h2>
+      <p class="tutorial-text" data-i18n="tutorial.step1.body">The Home tab is your command center. From here you can:</p>
+      <ul class="tutorial-list">
+        <li data-i18n-html="tutorial.step1.li1"><strong>Active Script</strong> &mdash; Quick link to the Scripts tab for disk-based .js scripts.</li>
+        <li data-i18n-html="tutorial.step1.li2"><strong>Session Stats</strong> &mdash; Track uptime, fame gained, white bags, events killed, and dungeons completed in real time.</li>
+        <li data-i18n-html="tutorial.step1.li3"><strong>Accounts Ready</strong> &mdash; Quickly launch any of your saved accounts directly from the dashboard.</li>
+        <li data-i18n-html="tutorial.step1.li4"><strong>Edit Layout</strong> &mdash; Click the pencil icon in the top corner to rearrange, hide, or restore cards. Drag to reorder and save your custom layout.</li>
+      </ul>
+    </div>
+
+    <!-- Step 2: Plugins tab -->
+    <div class="tutorial-step hidden" data-tutorial-step="2">
+      <div class="tutorial-step-badge">2 / 4</div>
+      <h2 class="tutorial-heading" data-i18n="tutorial.step2.title">Plugins</h2>
+      <p class="tutorial-text" data-i18n="tutorial.step2.body">Plugins extend what Realm Engine can do. The plugin hub lets you:</p>
+      <ul class="tutorial-list">
+        <li data-i18n-html="tutorial.step2.li1"><strong>Browse &amp; Search</strong> &mdash; Find plugins by name or filter by category.</li>
+        <li data-i18n-html="tutorial.step2.li2"><strong>Enable / Disable</strong> &mdash; Toggle plugins on and off with a single click.</li>
+        <li data-i18n-html="tutorial.step2.li3"><strong>Configure</strong> &mdash; Each plugin has its own settings panel &mdash; tweak them to fit your playstyle.</li>
+      </ul>
+      <p class="tutorial-text tutorial-text-dim" data-i18n="tutorial.step2.dim">Plugins include utilities like auto-aim, auto-dodge, auto-nexus and more.</p>
+    </div>
+
+    <!-- Step 3: Accounts tab (interactive) -->
+    <div class="tutorial-step hidden" data-tutorial-step="3">
+      <div class="tutorial-step-badge">3 / 4</div>
+      <h2 class="tutorial-heading" data-i18n="tutorial.step3.title">Accounts</h2>
+      <p class="tutorial-text" data-i18n="tutorial.step3.body1">This is where you manage your Realm accounts. You can store multiple accounts, view character overviews, vault contents, and launch into the game.</p>
+      <p class="tutorial-text" data-i18n="tutorial.step3.body2">Let's add your first account now to get you started.</p>
+      <div class="tutorial-account-form">
+        <div class="tutorial-field">
+          <label for="tutorial-email" data-i18n="accounts.label.email">Email</label>
+          <input id="tutorial-email" type="text" placeholder="name@example.com" spellcheck="false" autocomplete="email" />
+        </div>
+        <div class="tutorial-field">
+          <label for="tutorial-password" data-i18n="accounts.label.password">Password</label>
+          <input id="tutorial-password" type="password" placeholder="Password" autocomplete="current-password" data-i18n-placeholder="tutorial.step3.passwordPlaceholder" />
+        </div>
+      </div>
+      <div id="tutorial-account-status" class="tutorial-account-status"></div>
+      <p class="tutorial-text tutorial-text-dim" data-i18n="tutorial.step3.dim">You can always add more accounts later or skip this step for now.</p>
+    </div>
+
+    <!-- Step 4: Damage Sniffer -->
+    <div class="tutorial-step hidden" data-tutorial-step="4">
+      <div class="tutorial-step-badge">4 / 4</div>
+      <h2 class="tutorial-heading" data-i18n="tutorial.step4.title">Damage Sniffer</h2>
+      <p class="tutorial-text" data-i18n="tutorial.step4.body">The Damage Sniffer records combat data while you play. It tracks:</p>
+      <ul class="tutorial-list">
+        <li data-i18n-html="tutorial.step4.li1"><strong>Runs</strong> &mdash; Each encounter is logged with a live view and saved history.</li>
+        <li data-i18n-html="tutorial.step4.li2"><strong>Targets</strong> &mdash; See every enemy you hit, filter by boss or miniboss.</li>
+        <li data-i18n-html="tutorial.step4.li3"><strong>Player Breakdown</strong> &mdash; View per-player DPS and damage contributions.</li>
+      </ul>
+      <p class="tutorial-text tutorial-text-dim" data-i18n="tutorial.step4.dim">Data is captured automatically &mdash; just play and review your stats anytime.</p>
+    </div>
+
+    <!-- Step 5: Finish -->
+    <div class="tutorial-step hidden" data-tutorial-step="5">
+      <img class="tutorial-logo" src="LogoWNoBackground.png" width="64" height="64" alt="Realm Engine" />
+      <h2 class="tutorial-heading" data-i18n="tutorial.step5.title">You're all set!</h2>
+      <p class="tutorial-text" data-i18n="tutorial.step5.body">That covers the essentials. You can explore each tab at your own pace. If you ever need to revisit this tour, you can reset it in Settings.</p>
+      <p class="tutorial-text tutorial-text-dim" data-i18n="tutorial.step5.dim">Happy realming!</p>
+    </div>
+
+    <!-- Navigation -->
+    <div class="tutorial-nav">
+      <button id="tutorial-skip-btn" class="tutorial-btn tutorial-btn-ghost" type="button" data-i18n="tutorial.nav.skip">Skip</button>
+      <div class="tutorial-dots" id="tutorial-dots"></div>
+      <div class="tutorial-nav-right">
+        <button id="tutorial-back-btn" class="tutorial-btn tutorial-btn-ghost hidden" type="button" data-i18n="tutorial.nav.back">Back</button>
+        <button id="tutorial-next-btn" class="tutorial-btn tutorial-btn-primary" type="button" data-i18n="tutorial.nav.getStarted">Get Started</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Item detail modal (opened from an item sprite — sprite, enchants, drop locations) -->
+<div id="item-detail-overlay" class="hidden">
+  <div id="item-detail-modal">
+    <div class="item-detail-header">
+      <div class="item-detail-title-wrap">
+        <div id="item-detail-title" class="item-detail-title">Item</div>
+        <div id="item-detail-subtitle" class="item-detail-subtitle"></div>
+      </div>
+      <button id="item-detail-close" class="icon-btn item-detail-close-btn" type="button" title="Close">×</button>
+    </div>
+    <div class="item-detail-body">
+      <div id="item-detail-sprite" class="item-detail-sprite-wrap"></div>
+      <div class="item-detail-section">
+        <div class="item-detail-section-title">Enchants</div>
+        <div id="item-detail-enchants" class="item-detail-enchants"></div>
+      </div>
+      <div id="item-detail-locations-section" class="item-detail-section hidden">
+        <div class="item-detail-section-title">Locations</div>
+        <div id="item-detail-locations" class="item-detail-locations"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Home card add picker modal -->
+<div id="home-add-modal" class="home-add-modal hidden" aria-hidden="true">
+  <div class="home-add-modal-backdrop" data-home-add-close></div>
+  <div class="home-add-modal-panel" role="dialog" aria-modal="true">
+    <div class="home-add-modal-header">
+      <h3 class="home-add-modal-title">Add Card</h3>
+      <p class="home-add-modal-desc">Select a card to add to your homepage.</p>
+    </div>
+    <div id="home-add-modal-list" class="home-add-modal-list"></div>
+    <div class="home-add-modal-actions">
+      <button id="home-add-modal-close" class="setting-btn setting-btn-secondary" type="button" data-home-add-close>Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Home card remove confirmation modal -->
+<div id="home-remove-modal" class="home-remove-modal hidden" aria-hidden="true">
+  <div class="home-remove-modal-backdrop" data-home-remove-close></div>
+  <div class="home-remove-modal-panel" role="dialog" aria-modal="true">
+    <div class="home-remove-modal-header">
+      <h3 class="home-remove-modal-title">Remove Card</h3>
+    </div>
+    <p class="home-remove-modal-text">Are you sure you want to remove <strong id="home-remove-card-name"></strong> from your homepage?</p>
+    <div class="home-remove-modal-actions">
+      <button id="home-remove-confirm" class="setting-btn setting-btn-danger" type="button">Remove</button>
+      <button id="home-remove-cancel" class="setting-btn setting-btn-secondary" type="button" data-home-remove-close>Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Plugin modal (whitelist/blacklist editor + help) -->
+<div id="plugin-modal" class="plugin-modal-overlay hidden">
+  <div class="plugin-modal-backdrop" id="plugin-modal-backdrop"></div>
+  <div class="plugin-modal-panel" role="dialog" aria-modal="true">
+    <div class="plugin-modal-header">
+      <h3 class="plugin-modal-title" id="plugin-modal-title"></h3>
+      <button class="plugin-modal-close" id="plugin-modal-close" type="button" aria-label="Close">✕</button>
+    </div>
+    <div class="plugin-modal-body" id="plugin-modal-body"></div>
+  </div>
+</div>
+
+<!-- Muling status panel -->
+<div id="muling-panel" class="muling-panel" style="display:none;">
+  <div class="muling-panel-header">
+    <span class="muling-panel-title">Muling</span>
+    <span id="muling-panel-phase" class="muling-panel-phase"></span>
+    <button id="muling-panel-stop" class="muling-panel-stop-btn">Stop</button>
+    <button id="muling-panel-close" class="muling-panel-close-btn" title="Hide">✕</button>
+  </div>
+  <div class="muling-panel-body">
+    <div id="muling-panel-main" class="muling-panel-row">
+      <span class="muling-panel-role muling-role-main">Main</span>
+      <span id="muling-panel-main-name" class="muling-panel-name">—</span>
+      <span id="muling-panel-main-pots" class="muling-panel-pots"></span>
+      <span id="muling-panel-main-status" class="muling-panel-status">—</span>
+    </div>
+    <div id="muling-panel-mules" class="muling-panel-mules"></div>
+  </div>
+  <div class="muling-panel-footer">
+    <span id="muling-panel-char-info" class="muling-panel-char-info"></span>
+  </div>
+</div>
+
+<script>
+(function() {
+  // Pre-create stub objects so app.js const references capture the real containers.
+  // The worker will Object.assign into these, mutating them in-place.
+  var _items = {}, _classes = {}, _skins = {}, _textures = {}, _textiles = {}, _skinsheets = {};
+  window.EAMAssets = { items: _items, classes: _classes, skins: _skins, textures: _textures, textiles: _textiles, skinsheets: _skinsheets };
+  var _ench = {};
+  window.EAMEnchantments = _ench;
+
+  window._eamPromise = new Promise(function(resolve) {
+    var w = new Worker('/eam-loader.js');
+    w.onmessage = function(e) {
+      if (e.data) {
+        var a = e.data.assets;
+        if (a) {
+          Object.assign(_items, a.items);
+          Object.assign(_classes, a.classes);
+          Object.assign(_skins, a.skins);
+          Object.assign(_textures, a.textures);
+          Object.assign(_textiles, a.textiles);
+          Object.assign(_skinsheets, a.skinsheets);
+        }
+        if (e.data.enchantments) Object.assign(_ench, e.data.enchantments);
+      }
+      w.terminate();
+      resolve();
+    };
+    w.onerror = function() { resolve(); };
+  });
+})();
+</script>
+<script src="eam-portrait.js"></script>
+<script type="module" src="app.js"></script>
+
+<!-- Quick Launch account picker popup -->
+<div id="ql-picker" class="ql-picker-overlay" style="display:none;">
+  <div class="ql-picker-backdrop"></div>
+  <div class="ql-picker-panel">
+    <div class="ql-picker-header">
+      <span class="ql-picker-title">Quick Launch — Choose Account</span>
+      <button id="ql-picker-close" class="ql-picker-close" type="button">×</button>
+    </div>
+    <p class="ql-picker-sub">Select an account to bind to the Quick Launch button. Clicking it will instantly launch that account.</p>
+    <div id="ql-picker-list" class="ql-picker-list"></div>
+    <div class="ql-picker-footer">
+      <button id="ql-picker-clear" class="setting-btn setting-btn-secondary" type="button">Clear</button>
+    </div>
+  </div>
+</div>
+
+<!-- Script picker popup -->
+<div id="script-picker-overlay" class="script-picker-overlay hidden" role="dialog" aria-modal="true" aria-label="Select Script">
+  <div class="script-picker-backdrop"></div>
+  <div class="script-picker-panel">
+    <div class="script-picker-header">
+      <span class="script-picker-title">Scripts</span>
+      <button type="button" id="script-picker-close" class="icon-btn" title="Close">×</button>
+    </div>
+    <div class="script-picker-toolbar">
+      <input type="text" id="script-picker-search" class="script-picker-search" placeholder="Search by name or developer…" autocomplete="off" spellcheck="false">
+      <select id="script-picker-sort" class="settings-select script-picker-sort-select">
+        <option value="name">Name A–Z</option>
+        <option value="name-desc">Name Z–A</option>
+        <option value="developer">Developer</option>
+        <option value="status">Status</option>
+      </select>
+    </div>
+    <div id="script-picker-list" class="script-picker-list"></div>
+  </div>
+</div>
+
+<!-- Quick Launch button right-click context menu -->
+<div id="ql-ctx-menu" class="ql-ctx-menu" style="display:none;" role="menu">
+  <button type="button" class="accounts-ctx-item" data-ql-action="launch">Launch</button>
+  <button type="button" class="accounts-ctx-item" data-ql-action="edit">Edit Account</button>
+  <button type="button" class="accounts-ctx-item accounts-ctx-item--danger" data-ql-action="clear">Clear</button>
+</div>
+</body>
+</html>
