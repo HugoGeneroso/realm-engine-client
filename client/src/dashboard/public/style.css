@@ -7161,6 +7161,184 @@ body.theme-light .damage-player-row:hover {
   color: #f85149;
 }
 
+.settings-group h3 {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  margin-bottom: 12px;
+}
+
+.settings-group + .settings-group {
+  margin-top: 18px;
+}
+
+.settings-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--bg-subtle-border);
+}
+
+.settings-row:last-child { border-bottom: none; }
+
+/* Row locked by account permissions */
+.settings-row--locked {
+  opacity: 0.45;
+  pointer-events: none;
+  user-select: none;
+}
+
+.settings-row--locked .toggle-switch,
+.settings-row--locked input {
+  cursor: not-allowed;
+}
+
+.settings-row-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settings-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Navbar tab visibility list in settings */
+.navbar-tabs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-top: 4px;
+}
+
+.navbar-tabs-list-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--bg-subtle-border);
+}
+.navbar-tabs-list-item:last-child { border-bottom: none; }
+
+.navbar-tabs-list-item-label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.navbar-tabs-list-item.disabled-tab .navbar-tabs-list-item-label {
+  color: var(--text-muted);
+}
+
+.navbar-tabs-list-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.settings-row-stacked {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.settings-path-control {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+}
+
+.settings-credential-control {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+}
+
+.settings-credential-input {
+  flex: 1;
+  padding: 6px 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12px;
+  border-radius: 6px;
+  transition: background 0.25s, border-color 0.25s;
+}
+
+.settings-credential-input[readonly] {
+  cursor: default;
+}
+
+.settings-path-control input[type="text"] {
+  flex: 1;
+  padding: 6px 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: 'Consolas', monospace;
+  font-size: 12px;
+  border-radius: 6px;
+  transition: background 0.25s, border-color 0.25s;
+}
+
+.settings-path-control input[type="text"]:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.settings-select {
+  width: 100%;
+  max-width: 280px;
+  padding: 8px 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 13px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.25s, border-color 0.25s;
+}
+
+.settings-select:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.settings-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.account-layout-mode-select {
+  max-width: 200px;
+  width: auto;
+  min-width: 140px;
+}
+
+.home-multibox-placeholder {
+  min-height: 40px;
+}
+
+.setting-btn-secondary {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.setting-btn-secondary:hover {
+  background: var(--border);
+  color: var(--text);
+}
+
 /* ===== PACKET LAB ===== */
 
 .lab-tab-badge {
