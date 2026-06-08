@@ -2,3 +2,11 @@ learnings/
 /.code-health
 /.ik-jscpd
 /docs
+
+# ── Build artifacts stripped for distribution (regenerate — see SETUP.md) ──
+# il2cpp dump (Il2CppInspectorPro output) — ~94 MB, regenerate per game version.
+internal/src/game/generated/
+# RotMG game data — fetch with `npm run download-game-xml` (see SETUP.md).
+client/data/objects.xml
+client/data/tiles.xml
+internal/data/objects.xml
