@@ -87,7 +87,8 @@ static constexpr uint32_t OFF_KJM_OBJECT_ID = 0xC0;
 // OFF_OP_* = byte offset from ObjectProperties* (klass 8 + monitor 8 + fields…).
 // Old 0x6C1+ region sits inside String* / padding — not bools; bool cluster follows il2cpp-types.h:
 // isEventChestBoss(0x698), isKey(0x699), occupySquare(0x69A),
-// then int32 type @0x69C; after displayId/displayIdWithQty pointers, isEnemy @0x6C9; fullOccupy @0x6D1,
+// then int32 type @0x69C; after displayId/displayIdWithQty pointers, isEnemy @0x6D1 (live-client
+// verified; stale dump said 0x6C9 — note this collides with the dump's fullOccupy @0x6D1),
 // enemyOccupySquare @0x6D2, isStatic @0x6D3, blockProjectiles @0x6D4; protect* @0x6DC/0x6DD; flying @0x6E4
 static const uint32_t& OFF_KJM_OBJPROPS     = RuntimeOffsets::ObjProps;
 static const uint32_t& OFF_OP_ID_STR        = RuntimeOffsets::OP_IdStr;

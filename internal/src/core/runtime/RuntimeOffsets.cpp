@@ -102,7 +102,9 @@ uint32_t OP_NoWallRpt     = 0x210;
 uint32_t OP_OccupySq      = 0x69A;
 uint32_t OP_FullOcc       = 0x6D1;
 uint32_t OP_EnemyOcc      = 0x6D2;
-uint32_t OP_IsEnemy       = 0x6C9;
+// isEnemy verified at 0x6D1 against the live client (upstream offset update);
+// our il2cpp-types.h dump still shows 0x6C9 — dump is stale for this region.
+uint32_t OP_IsEnemy       = 0x6D1;
 uint32_t OP_IsStatic      = 0x6D3;
 uint32_t OP_BlockProj     = 0x6D4;
 // noHealthBar bool — true when the entity type has no visible HP bar. dump 0x6C6 + 0x10 = 0x6D6.
