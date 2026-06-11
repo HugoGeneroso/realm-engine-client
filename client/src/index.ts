@@ -291,7 +291,11 @@ async function main() {
   } catch (err) {
     Logger.warn('Main', `Failed to load objects.xml: ${(err as Error).message}`);
   }
-  gameData.loadTiles(tilesPath);
+  try {
+    gameData.loadTiles(tilesPath);
+  } catch (err) {
+    Logger.warn('Main', `Failed to load tiles.xml: ${(err as Error).message} (run: npm run download-game-xml -- --dir ./data)`);
+  }
 
   // 4. Attach core handlers (built-in, not plugins)
   const stateManager = new StateManager();
