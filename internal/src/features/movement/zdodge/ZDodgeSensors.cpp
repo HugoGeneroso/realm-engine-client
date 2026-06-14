@@ -3,6 +3,7 @@
 
 #include "AoeTracking.h"
 #include "AutoAim.h"
+#include "features/combat/enemytracker/EnemyTracker.h"
 #include "ProjectileTracking.h"
 #include "gui/tabs/WorldTAB.h"
 #include "gui/tabs/TestTAB.h"
@@ -87,22 +88,7 @@ void AddBlocker(SensorSnapshot& out, Blocker::Kind kind, int32_t id, float x, fl
     b.radius = SafeRadius(radius, kObstacleRadius);
 }
 
-struct EnemyCtx {
-    SensorSnapshot* out;
-    std::vector<int32_t>* enemyIds;
-    float playerX;
-    float playerY;
-    float cullSq;
-};
-
-void OnEnemy(float x, float y, int32_t id, void* user)
-{
-    auto* ctx = static_cast<EnemyCtx*>(user);
-    if (!ctx || !ctx->out || !IsFinitePoint(x, y)) return;
-    if (ctx->enemyIds && id != 0) ctx->enemyIds->push_back(id);
-    if (DistSq(x, y, ctx->playerX, ctx->playerY) > ctx->cullSq) return;
-    AddBlocker(*ctx->out, Blocker::Kind::Enemy, id, x, y, kEnemyRadius);
-}
+// Removed OnEnemy and EnemyCtx
 
 bool IsEnemyOwnedProjectile(const WorldProjectile& projectile, const std::vector<int32_t>& enemyIds)
 {
@@ -159,8 +145,14 @@ SensorSnapshot Build(float playerX, float playerY, const Settings& settings)
 
     std::vector<int32_t> enemyIds;
     enemyIds.reserve(kMaxBlockers);
-    EnemyCtx enemyCtx{ &out, &enemyIds, playerX, playerY, cullSq };
-    AutoAim::EnumerateLiveEnemies(OnEnemy, &enemyCtx);
+    EnemyTracker::Tick();
+    for (const auto& e : EnemyTracker::GetSnapshot()) {
+        if (!e.hasHealthBar) continue;
+        if (!IsFinitePoint(e.x, e.y)) continue;
+        if (e.id != 0) enemyIds.push_back(e.id);
+        if (DistSq(e.x, e.y, playerX, playerY) > cullSq) continue;
+        AddBlocker(out, Blocker::Kind::Enemy, e.id, e.x, e.y, kEnemyRadius);
+    }
 
     std::vector<WorldProjectile> projectiles;
     ProjectileTracking::CopyActiveForDraw(projectiles);
@@ -207,10 +199,12 @@ SensorSnapshot Build(float playerX, float playerY, const Settings& settings)
     for (int gy = -kObstacleGridRadius; gy <= kObstacleGridRadius; ++gy) {
         for (int gx = -kObstacleGridRadius; gx <= kObstacleGridRadius; ++gx) {
             if (gx == 0 && gy == 0) continue;
-            const float x = playerX + static_cast<float>(gx) * kObstacleStep;
-            const float y = playerY + static_cast<float>(gy) * kObstacleStep;
+            const float x = std::floor(playerX) + static_cast<float>(gx) * kObstacleStep + 0.5f;
+            const float y = std::floor(playerY) + static_cast<float>(gy) * kObstacleStep + 0.5f;
             if (TestTAB::IsWalkPositionBlocked(x, y))
                 AddBlocker(out, Blocker::Kind::Obstacle, 100000 + gy * 100 + gx, x, y, kObstacleRadius);
+            else if (TestTAB::IsDamagingPosition(x, y))
+                AddBlocker(out, Blocker::Kind::Obstacle, 200000 + gy * 100 + gx, x, y, kObstacleRadius);
         }
     }
 

@@ -1311,6 +1311,18 @@ namespace TestTAB {
 
 
     bool IsWalkPositionBlocked(float cx, float cy) { return IsPositionBlocked(cx, cy); }
+    
+    bool IsDamagingPosition(float cx, float cy) {
+        int x0 = static_cast<int>(floorf(cx - kPlayerChebyshevScale));
+        int x1 = static_cast<int>(floorf(cx + kPlayerChebyshevScale));
+        int y0 = static_cast<int>(floorf(cy - kPlayerChebyshevScale));
+        int y1 = static_cast<int>(floorf(cy + kPlayerChebyshevScale));
+        for (int tx = x0; tx <= x1; ++tx)
+            for (int ty = y0; ty <= y1; ++ty)
+                if (WorldTAB::IsDamagingTile(tx, ty))
+                    return true;
+        return false;
+    }
     bool IsWalkCircleBlocked(float cx, float cy)   { return IsCircleBlocked(cx, cy); }
 
     float GetCtrlTeleportMaxTiles() { return kCtrlTeleportMaxTiles; }

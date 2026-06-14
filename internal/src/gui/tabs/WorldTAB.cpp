@@ -186,11 +186,21 @@ static void RebuildBlockedMap()
         // 0x1aa1 is 'EH Secret Floor', the proxy safewalk replacement tile.
         // It lacks TCOND_NOWALK, but we must treat it as blocked to prevent autododge
         // from pathfinding onto what is actually lava on the server.
-        if ((t.conds & TCOND_NOWALK) || t.tileType == 0x1aa1)
+        bool isNoWalk = (t.conds & TCOND_NOWALK) || t.tileType == 0x1aa1;
+        
+        // Moving tiles (conveyor belts) natively allow walking. Due to XML offset aliasing
+        // in some client versions, they may mistakenly read as having <NoWalk/>.
+        // Explicitly unblock them so the planner doesn't treat them as obstacles.
+        if (t.speed != 0.f || (t.conds & TCOND_PUSH)) {
+            isNoWalk = false;
+        }
+
+        if (isNoWalk)
             blockedMap[k] = true;
         // Damaging tiles tracked separately: damage triggers when the player centre
         // (floor of world XY) lands on the tile, not when the hitbox overlaps it.
-        if (t.minDmg > 0 || t.maxDmg > 0)
+        // Use the native engine's cached damage (sq+0x10) and ensure there is no cover (sq+0x48).
+        if (t.damageCached > 0 && !t.hasCover)
             damagingMap[k] = true;
         // Store speed modifier for any tile that has one (0 = no modifier)
         if (t.speed != 0.f)
@@ -803,6 +813,13 @@ static void DoRefresh()
             SafeRead(tp, OFF_TILE_TYPE, t.tileType);
             if (t.tileType == TILE_VOID) continue;   // skip void/unset slots
             ReadTileProps(tp, t);
+            
+            // Read Discord method cached values from the Square object directly
+            SafeRead(tp, 0x10, t.damageCached);
+            void* coverPtr = nullptr;
+            if (SafeRead(tp, 0x48, coverPtr) && coverPtr != nullptr) {
+                t.hasCover = true;
+            }
             // Tile XML name via same chain as entities: KJMONHENJEN.OBAKMCCDBJA[0x18] → ObjectProperties.id[0x38]
             {
                 void* op = nullptr;

@@ -42,6 +42,7 @@ bool      IsAnyAutoDodgeEnabled();
     void ReadDodgePlayerStats(int32_t& hp, int32_t& maxHp, float& spd, float& tilesPerSec);
 
     bool IsWalkPositionBlocked(float cx, float cy);
+    bool IsDamagingPosition(float cx, float cy);
     bool IsWalkCircleBlocked(float cx, float cy);
     float GetCtrlTeleportMaxTiles();
     bool ComputeCtrlTeleportLanding(float playerX, float playerY, float cursorWorldX, float cursorWorldY,
