@@ -183,7 +183,10 @@ static void RebuildBlockedMap()
         uint32_t k = BlockedKey(t.tileX, t.tileY);
         // Only truly impassable tiles go in the blocked map — damage tiles are
         // physically walkable (the game triggers damage from player centre, not hitbox).
-        if (t.conds & TCOND_NOWALK)
+        // 0x1aa1 is 'EH Secret Floor', the proxy safewalk replacement tile.
+        // It lacks TCOND_NOWALK, but we must treat it as blocked to prevent autododge
+        // from pathfinding onto what is actually lava on the server.
+        if ((t.conds & TCOND_NOWALK) || t.tileType == 0x1aa1)
             blockedMap[k] = true;
         // Damaging tiles tracked separately: damage triggers when the player centre
         // (floor of world XY) lands on the tile, not when the hitbox overlaps it.
