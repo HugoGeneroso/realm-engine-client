@@ -27,11 +27,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
     case DLL_PROCESS_DETACH:
         // Dynamic unload (FreeLibrary): tear down hooks and graphics. Skip on process exit
         // (lpReserved != NULL) — loader state is undefined and other threads may be gone.
-        if (lpReserved == nullptr)
+        if (lpReserved == nullptr) {
             DetourUninitialization();
 #ifdef _VERSION
-        FreeVersionLibrary();
+            FreeVersionLibrary();
 #endif
+        }
         break;
     }
     return TRUE;

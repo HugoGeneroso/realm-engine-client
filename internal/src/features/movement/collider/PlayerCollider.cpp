@@ -195,7 +195,7 @@ bool FindTrackedOriginal(void* properties, float& outOriginal)
 void RestoreTrackedColliders()
 {
     for (size_t i = 0; i < g_trackedCount; ++i) {
-        if (g_tracked[i].ptr && g_tracked[i].hasOriginal)
+        if (g_tracked[i].ptr && g_tracked[i].hasOriginal && IsPlausiblePointer(g_tracked[i].ptr))
             WriteCollisionMultiplier(g_tracked[i].ptr, g_tracked[i].originalMultiplier);
     }
     for (TrackedProperty& tracked : g_tracked) tracked = TrackedProperty{};

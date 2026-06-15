@@ -55,6 +55,8 @@ struct WorldTile
     int32_t  tileY    = 0;    // grid Y
     int32_t  minDmg   = 0;
     int32_t  maxDmg   = 0;
+    int32_t  damageCached = 0; // sq + 0x10 native cached damage
+    bool     hasCover = false; // sq + 0x48 native cover object
     float    speed    = 0.f;
     uint8_t  conds    = 0;    // bitmask of TCOND_* flags below
     void*    ptr      = nullptr;
