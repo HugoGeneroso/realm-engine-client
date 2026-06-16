@@ -219,7 +219,7 @@ namespace RuntimeOffsets {
     extern uint32_t OP_OccupySq;    // "occupySquare"             fallback 0x69A
     extern uint32_t OP_FullOcc;     // "fullOccupy"               fallback 0x6D1
     extern uint32_t OP_EnemyOcc;    // "enemyOccupySquare"        fallback 0x6D2
-    extern uint32_t OP_IsEnemy;     // "isEnemy"                  fallback 0x6C9
+    extern uint32_t OP_IsEnemy;     // "isEnemy"                  fallback 0x6D1 (live-client verified; stale dump said 0x6C9)
     extern uint32_t OP_IsStatic;    // "isStatic"                 fallback 0x6D3
     extern uint32_t OP_BlockProj;   // "blockProjectiles"         fallback 0x6D4
     // "noHealthBar" — true when the entity type has no visible HP bar. Enemies with this set

@@ -107,7 +107,9 @@ bool ThreatBoundsCanHitPoint(const Threat& threat, Vec2 point, float half)
 
 float EffectiveBlockerHalf(const Blocker& blocker, const Settings& settings)
 {
-    const float playerRadius = SanitizeSetting(settings.playerRadius, Settings{}.playerRadius, 0.f, 1.f);
+    const float playerRadius = blocker.kind == Blocker::Kind::Obstacle
+        ? 0.2285f  // The flash client allows entering up to 0.2285 units into an obstacle
+        : SanitizeSetting(settings.playerRadius, Settings{}.playerRadius, 0.f, 1.f);
     const float clearance = SanitizeSetting(settings.clearanceTiles, Settings{}.clearanceTiles, 0.f, 1.f);
     const float enemyAvoidance = blocker.kind == Blocker::Kind::Enemy
         ? SanitizeSetting(settings.enemyAvoidanceRadius, Settings{}.enemyAvoidanceRadius, 0.f, 3.f)
@@ -198,9 +200,8 @@ float BlockerClearance(const Blocker& blocker, Vec2 point, const Settings& setti
     return ChebDistance(point, blocker.pos) - EffectiveBlockerHalf(blocker, settings);
 }
 
-bool IsEscapingExistingEnemyOverlap(const Blocker& blocker, Vec2 player, Vec2 point, const Settings& settings)
+bool IsEscapingExistingOverlap(const Blocker& blocker, Vec2 player, Vec2 point, const Settings& settings)
 {
-    if (blocker.kind != Blocker::Kind::Enemy) return false;
     if (!BlockerHitsPoint(blocker, player, settings)) return false;
     return ChebDistance(point, blocker.pos) > ChebDistance(player, blocker.pos) + kEscapeEpsilon;
 }
@@ -219,7 +220,7 @@ CandidateRejectReason RejectReasonForMove(Vec2 player, Vec2 point, float arrival
     for (int i = 0; i < BlockerCount(sensors); ++i) {
         const Blocker& blocker = sensors.blockers[i];
         if (!BlockerHitsPoint(blocker, point, settings)) continue;
-        if (IsEscapingExistingEnemyOverlap(blocker, player, point, settings)) continue;
+        if (IsEscapingExistingOverlap(blocker, player, point, settings)) continue;
         return CandidateRejectReason::Blocker;
     }
     for (int i = 0; i < ThreatCount(sensors); ++i)
@@ -444,6 +445,22 @@ PlanResult Evaluate(const PlanRequest& req)
     best = hold;
     bestScore = hold.score;
     found = hold.tauMs > frameMs;
+
+    if (LenSq(out.slideDir) > 0.0001f) {
+        const HeadingEval slideEval = EvaluateHeading(req, out.slideDir, moveBudget, frameMs, horizonMs, planningDistance, flow);
+        const bool safeForNow = slideEval.tauMs > frameMs;
+        AppendCandidateDebug(out, slideEval.target, safeForNow, slideEval.rejectReason, slideEval.score);
+        if (!haveFallback || slideEval.score > fallbackScore) {
+            fallback = slideEval;
+            fallbackScore = slideEval.score;
+            haveFallback = true;
+        }
+        if (safeForNow) {
+            best = slideEval;
+            bestScore = slideEval.score;
+            found = true;
+        }
+    }
 
     for (int i = 0; i < kCandidateDirections; ++i) {
         const float angle = kTwoPi * static_cast<float>(i) / static_cast<float>(kCandidateDirections);

@@ -87,7 +87,8 @@ static constexpr uint32_t OFF_KJM_OBJECT_ID = 0xC0;
 // OFF_OP_* = byte offset from ObjectProperties* (klass 8 + monitor 8 + fields…).
 // Old 0x6C1+ region sits inside String* / padding — not bools; bool cluster follows il2cpp-types.h:
 // isEventChestBoss(0x698), isKey(0x699), occupySquare(0x69A),
-// then int32 type @0x69C; after displayId/displayIdWithQty pointers, isEnemy @0x6C9; fullOccupy @0x6D1,
+// then int32 type @0x69C; after displayId/displayIdWithQty pointers, isEnemy @0x6D1 (live-client
+// verified; stale dump said 0x6C9 — note this collides with the dump's fullOccupy @0x6D1),
 // enemyOccupySquare @0x6D2, isStatic @0x6D3, blockProjectiles @0x6D4; protect* @0x6DC/0x6DD; flying @0x6E4
 static const uint32_t& OFF_KJM_OBJPROPS     = RuntimeOffsets::ObjProps;
 static const uint32_t& OFF_OP_ID_STR        = RuntimeOffsets::OP_IdStr;
@@ -182,11 +183,24 @@ static void RebuildBlockedMap()
         uint32_t k = BlockedKey(t.tileX, t.tileY);
         // Only truly impassable tiles go in the blocked map — damage tiles are
         // physically walkable (the game triggers damage from player centre, not hitbox).
-        if (t.conds & TCOND_NOWALK)
+        // 0x1aa1 is 'EH Secret Floor', the proxy safewalk replacement tile.
+        // It lacks TCOND_NOWALK, but we must treat it as blocked to prevent autododge
+        // from pathfinding onto what is actually lava on the server.
+        bool isNoWalk = (t.conds & TCOND_NOWALK) || t.tileType == 0x1aa1;
+        
+        // Moving tiles (conveyor belts) natively allow walking. Due to XML offset aliasing
+        // in some client versions, they may mistakenly read as having <NoWalk/>.
+        // Explicitly unblock them so the planner doesn't treat them as obstacles.
+        if (t.speed != 0.f || (t.conds & TCOND_PUSH)) {
+            isNoWalk = false;
+        }
+
+        if (isNoWalk)
             blockedMap[k] = true;
         // Damaging tiles tracked separately: damage triggers when the player centre
         // (floor of world XY) lands on the tile, not when the hitbox overlaps it.
-        if (t.minDmg > 0 || t.maxDmg > 0)
+        // Use the native engine's cached damage (sq+0x10) and ensure there is no cover (sq+0x48).
+        if (t.damageCached > 0 && !t.hasCover)
             damagingMap[k] = true;
         // Store speed modifier for any tile that has one (0 = no modifier)
         if (t.speed != 0.f)
@@ -799,6 +813,13 @@ static void DoRefresh()
             SafeRead(tp, OFF_TILE_TYPE, t.tileType);
             if (t.tileType == TILE_VOID) continue;   // skip void/unset slots
             ReadTileProps(tp, t);
+            
+            // Read Discord method cached values from the Square object directly
+            SafeRead(tp, 0x10, t.damageCached);
+            void* coverPtr = nullptr;
+            if (SafeRead(tp, 0x48, coverPtr) && coverPtr != nullptr) {
+                t.hasCover = true;
+            }
             // Tile XML name via same chain as entities: KJMONHENJEN.OBAKMCCDBJA[0x18] → ObjectProperties.id[0x38]
             {
                 void* op = nullptr;

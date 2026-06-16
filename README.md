@@ -1,7 +1,7 @@
   # Realm Engine — Free Open-Source RotMG Hacks, Client & SDK
 
   [![Website](https://img.shields.io/badge/site-realmengine.org-14b8a6)](https://realmengine.org)
-  [![Discord](https://img.shields.io/badge/discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/CGuYyTbf)
+  [![Discord](https://img.shields.io/badge/discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/uEKPPWz9k4)
   [![License](https://img.shields.io/badge/license-Open%20Source-14b8a6)](LICENSE)
   [![Platform](https://img.shields.io/badge/platform-Windows%20x64-0d9488)](https://realmengine.org/download)
   [![Stars](https://img.shields.io/github/stars/Evergreen-Techworks/realm-engine-client?style=social)](https://github.com/Evergreen-Techworks/realm-engine-client/stargazers)

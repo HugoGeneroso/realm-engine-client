@@ -37,12 +37,6 @@ if (process.send) {
 }
 // ──────────────────────────────────────────────────────────────────────────────
 
-// ── Anti-tamper bootstrap ─────────────────────────────────────────────────────
-// AntiHook.captureBaseline() must snapshot native functions before *anything*
-// else can monkey-patch them.  Import and initialise first.
-import { AntiHook } from './security/AntiHook.js';
-AntiHook.captureBaseline();
-// ─────────────────────────────────────────────────────────────────────────────
 
 import { resolve, dirname, join } from 'path';
 import { homedir } from 'os';
@@ -60,15 +54,14 @@ import { GameWorldState } from './state/GameWorldState.js';
 import { ProjectileTracker } from './state/ProjectileTracker.js';
 import { GameDataLoader } from './game-data/GameDataLoader.js';
 import { PluginManager } from './plugins/PluginManager.js';
-import { PacketInspector } from './dev/server/PacketInspector.js';
-import { DevServer } from './dev/server/DevServer.js';
+import { PacketInspector } from './dashboard/server/PacketInspector.js';
+import { DevServer } from './dashboard/server/DevServer.js';
 import { GameHooker } from './hooker/GameHooker.js';
 import { InternalBridge } from './bridge/InternalBridge.js';
 import { setDllFeatureSender } from './bridge/DllFeatureBus.js';
 import { Logger } from './util/Logger.js';
 import { ensureRotmgMetadataXml } from './util/ensureRotmgMetadataXml.js';
 import { ensureSdkDeployed } from './util/ensureSdkDeployed.js';
-import { AntiTamper } from './security/AntiTamper.js';
 import { getBakedPacketDefinitions, getBakedServers, getBakedStatTypes } from './config/BakedData.js';
 import {
   readMergedClientConfigRaw,
@@ -155,13 +148,9 @@ function loadClientDataConfig(): ClientDataConfig {
 }
 
 async function main() {
-  const devMode = process.argv.includes('--dev') || true; // Default to dev mode for now
+  const devMode = true; // Dashboard always runs — there is no headless mode.
 
   Logger.log('Main', 'RotMG MITM Proxy starting...');
-
-  // Initialise anti-tamper (runs initial sweep + blocks inspector signal).
-  // IS_PROD gates the file-integrity checks so dev mode is unaffected.
-  AntiTamper.initialize(ROOT, IS_PROD);
 
   // 0. Install game hook (DLL injection for connection redirect)
   const clientDataConfig = loadClientDataConfig();
@@ -197,15 +186,10 @@ async function main() {
     | 'env_override'
     | 'config_override'
     | 'assets_dll'
-    | 'encrypted'
     | 'dev_copy'
-    | 'dev_copy_newer_than_bin'
     | 'skipped_env'
     | 'none'
     | 'error' = 'none';
-  /** Set when both internal.bin and a local dev version.dll exist; logged for deploy diagnostics. */
-  let internalBinMtimeMs: number | null = null;
-  let devDllMtimeMs: number | null = null;
   if (hooker.gameDirectory) {
     const skipVersionDeploy = process.env.REALM_ENGINE_SKIP_VERSION_DLL_DEPLOY === '1';
     if (skipVersionDeploy) {
@@ -218,7 +202,6 @@ async function main() {
     try {
       const cheatDllDest = resolve(hooker.gameDirectory, 'version.dll');
       let deployed = false;
-      const binPath = resolve(assetsDir, 'internal.bin');
       // APP_ROOT = bot-client dir (Electron sets REALM_ENGINE_APP_ROOT). ROOT may be resourcesPath in prod,
       // so never use ROOT/.. for repo siblings — that misses LFG/DebugInternal next to LFG/bot-client.
       const devDll = resolveDefaultDevInternalDll();
@@ -250,8 +233,8 @@ async function main() {
         }
       }
 
-      // Dev build output: assets/version.dll (written by VS when OutDir = client/assets/).
-      // Takes priority over encrypted blob so a local rebuild is always used immediately.
+      // Shipped DLL: assets/version.dll (plain — written by build-prod, or by VS
+      // when OutDir = client/assets/). Open source: no encrypted blob.
       const assetsDll = resolve(assetsDir, 'version.dll');
       if (!deployed && existsSync(assetsDll)) {
         try {
@@ -264,31 +247,7 @@ async function main() {
         }
       }
 
-      // If a local DebugInternal build is newer than the shipped encrypted blob, prefer it.
-      // Stale internal.bin often mismatches the live Exalt client and crashes inside IL2CPP/hooks.
-      if (devDll && existsSync(binPath)) {
-        try {
-          internalBinMtimeMs = statSync(binPath).mtimeMs;
-          devDllMtimeMs = statSync(devDll).mtimeMs;
-          if (devDllMtimeMs > internalBinMtimeMs) {
-            copyFileSync(devDll, cheatDllDest);
-            deployed = true;
-            versionDeploySource = 'dev_copy_newer_than_bin';
-          }
-        } catch {
-          /* fall through to encrypted / plain dev copy */
-        }
-      }
-
-      // Production: decrypt assets/internal.bin → version.dll
-      if (!deployed && existsSync(binPath)) {
-        try {
-          const { extractEncryptedDll } = await import('./hooker/DllCrypto.js');
-          deployed = extractEncryptedDll(assetsDir, 'internal', cheatDllDest);
-          if (deployed) versionDeploySource = 'encrypted';
-        } catch {}
-      }
-      // Dev fallback: copy raw DLL from DebugInternal build output
+      // Dev fallback: copy raw DLL from a local internal build output.
       if (!deployed && devDll) {
         try {
           copyFileSync(devDll, cheatDllDest);
@@ -299,51 +258,13 @@ async function main() {
       if (deployed) {
         Logger.log('Main', `Internal DLL deployed to ${cheatDllDest}`);
       } else {
-        Logger.warn('Main', 'Internal DLL not found (no assets/internal.bin and no local internal build). DLL features unavailable.');
+        Logger.warn('Main', 'Internal DLL not found (no assets/version.dll and no local internal build). DLL features unavailable.');
       }
     } catch (err) {
       versionDeploySource = 'error';
       Logger.warn('Main', `Internal DLL deployment failed: ${(err as Error).message}`);
     }
     }
-    // #region agent log
-    {
-      const gd = hooker.gameDirectory;
-      const norm = (p: string | null | undefined) =>
-        String(p || '')
-          .trim()
-          .replace(/\\/g, '/')
-          .toLowerCase();
-      const vPath = gd ? resolve(gd, 'version.dll') : '';
-      const wPath = gd ? resolve(gd, 'winhttp.dll') : '';
-      let vSz: number | null = null;
-      let wSz: number | null = null;
-      try {
-        if (vPath && existsSync(vPath)) vSz = statSync(vPath).size;
-      } catch {
-        vSz = null;
-      }
-      try {
-        if (wPath && existsSync(wPath)) wSz = statSync(wPath).size;
-      } catch {
-        wSz = null;
-      }
-      const logDevDll = resolveDefaultDevInternalDll();
-      const logBinPath = resolve(assetsDir, 'internal.bin');
-      let binMtimeProbe: number | null = null;
-      let devMtimeProbe: number | null = null;
-      try {
-        if (existsSync(logBinPath)) binMtimeProbe = statSync(logBinPath).mtimeMs;
-      } catch {
-        binMtimeProbe = null;
-      }
-      try {
-        if (logDevDll && existsSync(logDevDll)) devMtimeProbe = statSync(logDevDll).mtimeMs;
-      } catch {
-        devMtimeProbe = null;
-      }
-    }
-    // #endregion
   }
 
   // 1. Load packet definitions
@@ -370,7 +291,11 @@ async function main() {
   } catch (err) {
     Logger.warn('Main', `Failed to load objects.xml: ${(err as Error).message}`);
   }
-  gameData.loadTiles(tilesPath);
+  try {
+    gameData.loadTiles(tilesPath);
+  } catch (err) {
+    Logger.warn('Main', `Failed to load tiles.xml: ${(err as Error).message} (run: npm run download-game-xml -- --dir ./data)`);
+  }
 
   // 4. Attach core handlers (built-in, not plugins)
   const stateManager = new StateManager();
@@ -443,10 +368,6 @@ async function main() {
     () => ({ worldState, projectileTracker }),
   );
 
-  // Admin dev: gate always active, all plans granted, admin mode on — no sign-in required.
-  pluginManager.loginGateActive = true;
-  pluginManager.adminMode = true;
-  pluginManager.setActivePlans(['free', 'dodge', 'developer', 'pro', 'elite', 'combined']);
 
   // 6. Dev dashboard FIRST — Electron only waits ~10s for http://localhost:3000; metadata fetch can be slow
   let devServer: DevServer | undefined;
@@ -457,7 +378,7 @@ async function main() {
 
     const bridgeClientRef: BridgeClientRef = { current: undefined };
 
-    const publicDir = resolve(ROOT, 'src', 'dev', 'public');
+    const publicDir = resolve(ROOT, 'src', 'dashboard', 'public');
     // Latest's DevServer derives configPath/ROOT internally from publicDir.
     devServer = new DevServer(inspector, pluginManager, publicDir, worldState, gameData);
     devServer.setDetectedGamePath(hooker.gameDirectory);
@@ -553,14 +474,9 @@ async function main() {
     devServer?.broadcastDllMessage(msg);
   });
 
-  // Start periodic anti-tamper sweeps (30 s interval, unref'd so it doesn't
-  // keep the process alive on its own).
-  AntiTamper.startMonitoring(30_000);
-
   // Graceful shutdown
   const shutdown = async () => {
     Logger.log('Main', 'Shutting down...');
-    AntiTamper.stopMonitoring();
     scriptHost?.stopAll();
     internalBridge.stop();
     setDllFeatureSender(null);

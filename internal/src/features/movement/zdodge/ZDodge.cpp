@@ -136,9 +136,9 @@ DebugSnapshot ReadDebugSnapshot()
 void PublishStatus(FrameStatus status)
 {
     if (!IsEnabled()) return;
-    DebugSnapshot snapshot{};
-    snapshot.status = status;
-    PublishDebug(snapshot);
+    auto snapshot = std::make_unique<DebugSnapshot>();
+    snapshot->status = status;
+    PublishDebug(*snapshot);
 }
 
 void ApplyDamageThreshold(SensorSnapshot& sensors, int32_t maxHp, float damageThresholdPct)
@@ -162,7 +162,8 @@ void SetEnabled(bool enabled)
     g_enabled.store(enabled, std::memory_order_relaxed);
     if (!enabled) {
         ResetCommit();
-        PublishDebug(DebugSnapshot{});
+        auto snapshot = std::make_unique<DebugSnapshot>();
+        PublishDebug(*snapshot);
     }
 }
 bool IsEnabled() { return g_enabled.load(std::memory_order_relaxed); }
@@ -170,7 +171,8 @@ void OnEnter()
 {
     ProjectileTracking::Install();
     ResetCommit();
-    PublishDebug(DebugSnapshot{});
+    auto snapshot = std::make_unique<DebugSnapshot>();
+    PublishDebug(*snapshot);
 }
 
 void Tick(void* player, float px, float py, float dt)
@@ -257,18 +259,18 @@ void Tick(void* player, float px, float py, float dt)
     }
 
     if (settings.debugOverlay && IsEnabled()) {
-        DebugSnapshot debug{};
-        debug.status = status;
-        debug.player = req.player;
-        debug.intentDir = req.intentDir;
-        debug.intendedTarget = { px + req.intentDir.x * moveBudget, py + req.intentDir.y * moveBudget };
-        debug.slideDir = plan.slideDir;
-        debug.selectedTarget = moveTarget;
-        debug.hasSelectedTarget = plan.shouldMove;
-        debug.sensors = req.sensors;
-        debug.candidateCount = settings.candidateOverlay ? std::min(plan.candidateCount, kMaxCandidates) : 0;
-        for (int i = 0; i < debug.candidateCount; ++i) debug.candidates[i] = plan.candidates[i];
-        PublishDebug(debug);
+        auto debug = std::make_unique<DebugSnapshot>();
+        debug->status = status;
+        debug->player = req.player;
+        debug->intentDir = req.intentDir;
+        debug->intendedTarget = { px + req.intentDir.x * moveBudget, py + req.intentDir.y * moveBudget };
+        debug->slideDir = plan.slideDir;
+        debug->selectedTarget = moveTarget;
+        debug->hasSelectedTarget = plan.shouldMove;
+        debug->sensors = req.sensors;
+        debug->candidateCount = settings.candidateOverlay ? std::min(plan.candidateCount, kMaxCandidates) : 0;
+        for (int i = 0; i < debug->candidateCount; ++i) debug->candidates[i] = plan.candidates[i];
+        PublishDebug(*debug);
     }
 }
 
