@@ -104,6 +104,8 @@ namespace {
                 if (!on) ProjNoclip::SetEnabled(false);
             }),
             FH("playerColliderSceneReset", PlayerCollider::ResetScene()),
+            FH_BOOL("colliderEnabled", PlayerCollider::SetEnabled),
+            FH_FLOAT("colliderMultiplier", PlayerCollider::SetMultiplier),
             FH("clientDefense", FeatureState::SetClientDefense(static_cast<int32_t>(f.Int()))),
             FH("clientClassType", FeatureState::SetClientClassType(static_cast<int32_t>(f.Int()))),
             FH_INT("autoDodgeMode", IpcBridge_SetAutoDodgeMode),
