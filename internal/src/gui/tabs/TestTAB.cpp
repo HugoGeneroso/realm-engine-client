@@ -135,10 +135,6 @@ void ApplyDodgeModeWithEnter(DodgeMode nextMode)
     RolloutDodge::SetEnabled(rollout);
     ZDodge::SetEnabled(nextMode == DodgeMode::ZDodge);
 
-    // The collider hack (zeroing collisionRadiusMultiplier) is part of autododge;
-    // it must follow the dodge on/off state, not run unconditionally. When this
-    // flips to false, PlayerCollider::Tick restores the saved game value.
-    PlayerCollider::SetEnabled(nextMode != DodgeMode::Off);
 
     DBG_FILE_LOG("[DodgeSwap] ApplyDodgeModeWithEnter nextMode=" << static_cast<int>(nextMode)
         << " (0=Off 1=XDodge 2=RollGrid 3=RollQuad 4=ZDodge)"

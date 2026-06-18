@@ -38,10 +38,13 @@ bool ApplyEntityMultiplierTargets(void* entityPtr,
 	UpdateLogFn logFn);
 
 // Master toggle. While disabled, Tick() restores any collider it previously
-// zeroed and otherwise leaves the game's collisionRadiusMultiplier untouched.
-// Driven by the autododge mode swap (see TestTAB::ApplyDodgeModeWithEnter).
+// changed and otherwise leaves the game's collisionRadiusMultiplier untouched.
+// Driven by the Collider Manipulation plugin (colliderEnabled feature command).
 void SetEnabled(bool enabled);
 bool IsEnabled();
+
+void SetMultiplier(float multiplier);
+float GetMultiplier();
 
 void Tick(void* player);
 void ResetScene();

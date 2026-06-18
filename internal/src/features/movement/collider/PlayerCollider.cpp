@@ -21,6 +21,8 @@ struct TrackedProperty {
 };
 
 bool g_enabled = false;
+
+float g_multiplier = 1.0f;
 void* g_lastPlayer = nullptr;
 TrackedProperty g_tracked[kMaxObjectPropertiesTargets]{};
 size_t g_trackedCount = 0;
@@ -332,7 +334,8 @@ void Tick(void* player)
         return;
 
     // Rebuild the tracking set: keep the captured original for objects we already
-    // track, capture a fresh one for newcomers, then force each collider to zero.
+    // track, capture a fresh one for newcomers, then force each collider to the
+    // target multiplier (g_multiplier).
     TrackedProperty next[kMaxObjectPropertiesTargets]{};
     size_t nextCount = 0;
     for (size_t i = 0; i < propertyCount; ++i) {
@@ -355,7 +358,7 @@ void Tick(void* player)
             }
         }
 
-        WriteCollisionMultiplier(propertiesPtr, 0.0f);
+        WriteCollisionMultiplier(propertiesPtr, g_multiplier);
         next[nextCount++] = entry;
     }
 
@@ -376,6 +379,19 @@ bool IsEnabled()
     return g_enabled;
 }
 
+void SetMultiplier(float multiplier)
+{
+    if (!std::isfinite(multiplier)) return;
+    if (multiplier < 0.0f) multiplier = 0.0f;
+    if (multiplier > 1.0f) multiplier = 1.0f;
+    g_multiplier = multiplier;
+}
+
+float GetMultiplier()
+{
+    return g_multiplier;
+}
+
 void ResetScene()
 {
     g_lastPlayer = nullptr;
@@ -385,6 +401,7 @@ void ResetScene()
 void ResetStateForTest()
 {
     g_enabled = false;
+    g_multiplier = 1.0f;
     g_lastPlayer = nullptr;
     ForgetTrackedColliders();
 }
