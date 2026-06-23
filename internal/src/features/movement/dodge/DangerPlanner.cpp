@@ -4,6 +4,7 @@
 #include "XDodge.h"
 #include "RolloutDodge.h"
 #include "ZDodge.h"
+#include "RePP.h"
 #include "DbgFileLog.h"
 #include "SteerInput.h"
 #include "GhostHit.h"
@@ -715,7 +716,8 @@ void __fastcall Detour_AppEngineUpdate(void* __this, void* method)
     const bool xdodgeOn  = XDodge::IsEnabled();
     const bool rolloutOn = RolloutDodge::IsEnabled();
     const bool zaclinOn = ZDodge::IsEnabled();
-    if (xdodgeOn || rolloutOn || zaclinOn) {
+    const bool reppOn   = RePP::IsEnabled();
+    if (xdodgeOn || rolloutOn || zaclinOn || reppOn) {
         // Use GameState::GetLocalPtr() directly — the EXACT source AutoAim
         // uses (and AutoAim works). LocalPlayer::GetPtr() is a second-hand
         // mirror refreshed only by LocalPlayer::Tick() on the render thread
@@ -742,7 +744,8 @@ void __fastcall Detour_AppEngineUpdate(void* __this, void* method)
         // shared external goal that dodge engines can consume.
         SteerInput::Tick();
         ResolveEnemyLock(px, py);
-        if (zaclinOn)       ZDodge::Tick(p, px, py, dt);
+        if (reppOn)         RePP::Tick(p, px, py, dt);
+        else if (zaclinOn)  ZDodge::Tick(p, px, py, dt);
         else if (rolloutOn) RolloutDodge::Tick(p, px, py, dt);
         else                XDodge::Tick(p, px, py, dt);
         // GhostHit runs independently — a SAFETY net for bullets the game's

@@ -253,6 +253,14 @@ namespace WorldTAB {
     // NOT when the hitbox overlaps it.  Use floor(worldX/Y) for the lookup.
     bool IsDamagingTile(int tx, int ty);
 
+    // LIVE per-square hazard check via the game's own square_lookup. A tile is
+    // hazardous iff its ground-damage field > 0 AND it is NOT covered (a
+    // bridge/platform/protect object on top negates the damage). Unlike
+    // IsDamagingTile (a cached, scan-gated map) this reads live state, so it
+    // catches mid-fight tile transforms and cover changes. Falls back to
+    // IsDamagingTile if the raw call/offsets are unavailable on this build.
+    bool IsTileDamagingLive(int tx, int ty);
+
     // Returns the XML speed multiplier of the tile at (tx, ty).
     // 0.0 = no modifier, > 1.0 = speedy ground, < 1.0 = slow ground.
     float GetTileSpeed(int tx, int ty);
@@ -260,4 +268,10 @@ namespace WorldTAB {
     // Reads the current world/map name via ABKHBJOKLJH (WorldManager property, RVA 0x4045E0).
     // Writes a null-terminated ASCII string into buf. Returns false if unavailable.
     bool ReadMapName(char* buf, int bufLen);
+
+    // A4 tile recovery: a sample live BGAIOPJMHLO tile instance from the last tile
+    // walk (any valid one — the pointer is good regardless of field staleness).
+    // RuntimeOffsets::RecoverTileChain uses it to heal the tile + TileProps classes.
+    // nullptr until a world with tiles has been walked.
+    void* GetSampleTilePtr();
 }

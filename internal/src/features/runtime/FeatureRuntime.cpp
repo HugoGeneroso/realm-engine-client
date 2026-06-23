@@ -63,7 +63,7 @@ namespace {
         int dodgeMode = FeatureState::GetAutoDodgeMode();
         if (dodgeMode != s_lastMode) {
             DBG_FILE_LOG("[DodgeSwap] IPC autoDodgeMode changed " << s_lastMode << " -> " << dodgeMode
-                << " (this is the raw index the dashboard sent; 4=ZDodge)");
+                << " (this is the raw index the dashboard sent; 4=ZDodge 5=RePP)");
             s_lastMode = dodgeMode;
             TestTAB::SetDodgeModeWithEnter(static_cast<TestTAB::DodgeMode>(dodgeMode));
         }

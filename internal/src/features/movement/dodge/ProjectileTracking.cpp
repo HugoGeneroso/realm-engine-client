@@ -41,6 +41,11 @@ static const int   kSpawnParamCount = 12;
 // readable metadata first, then fall back to the older hardcoded name.
 __declspec(noinline) static Il2CppClass* ResolveProjClass()
 {
+    // Structural auto-recovery (A1) wins: the class found via its ProjectileProperties*
+    // field survives BeeByte renames, so once the BootGate Discovery pass recovers it
+    // we use it directly — bullets are captured again with no dump after a patch.
+    if (Il2CppClass* rec = RuntimeOffsets::GetRecoveredProjClass()) return rec;
+
     static Il2CppClass* s_cached = nullptr;
     if (s_cached) return s_cached;
 

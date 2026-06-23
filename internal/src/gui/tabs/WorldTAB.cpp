@@ -10,6 +10,7 @@
 #include "Il2CppResolver.h"
 #include "RuntimeOffsets.h"
 #include "GameState.h"
+#include "DbgFileLog.h"
 #include "LocalPlayer.h"
 #include "helpers.h"
 #include "BeebyteName.h"
@@ -49,6 +50,10 @@ static const uint32_t& OFF_WM_MAPOBJ_DICT_A = RuntimeOffsets::WM_MapDictA;
 static const uint32_t& OFF_WM_MAPOBJ_DICT_B = RuntimeOffsets::WM_MapDictB;
 static const uint32_t& OFF_WM_KJMON_LIST    = RuntimeOffsets::WM_KjmonList;
 // NOTE: raw ints at tile 0x70/0x74 are NOT minDmg/maxDmg — 0x74 is a tick counter.
+// A4 tile recovery: a sample live BGAIOPJMHLO instance cached during the tile walk
+// (render-thread only; plain pointer store is atomic on x64).
+static void* g_sampleTilePtr = nullptr;
+
 // BGAIOPJMHLO tile instance fields:
 static const uint32_t& OFF_WM_TILE_ARR     = RuntimeOffsets::WM_TileArr;
 static const uint32_t& OFF_WM_TILE_LIST    = RuntimeOffsets::WM_TileList;
@@ -808,6 +813,7 @@ static void DoRefresh()
             if (!SafeRead(base + (size_t)i * sizeof(void*), 0u, tp) || !AddrValid(tp)) continue;
             WorldTile t;
             t.ptr = tp;
+            g_sampleTilePtr = tp;   // A4: any valid tile instance (ptr is good regardless of offset staleness)
             SafeRead(tp, OFF_TILE_X,    t.tileX);
             SafeRead(tp, OFF_TILE_Y,    t.tileY);
             SafeRead(tp, OFF_TILE_TYPE, t.tileType);
@@ -2347,6 +2353,8 @@ namespace WorldTAB {
         return g_tiles;
     }
 
+    void* GetSampleTilePtr() { return g_sampleTilePtr; }
+
     const std::vector<WorldProjectile>& GetProjectiles()
     {
         return g_projectiles;
@@ -2368,6 +2376,71 @@ namespace WorldTAB {
     {
         std::lock_guard<std::mutex> lock(s_tileMapMutex);
         return s_damagingMap.count(BlockedKey(tx, ty)) != 0;
+    }
+
+    // ── LIVE per-square hazard check (community offsets) ─────────────────────
+    // square_lookup: Square* (__fastcall)(map, tx, ty, methodInfo) @ GameAssembly
+    // +0x1CA7B60. A tile is actually hazardous iff its ground-damage field
+    // (Square+0x58, i32) > 0 AND it is NOT covered (Square+0x48 cover ref — a
+    // bridge / platform / ProtectFromGroundDamage object on top negates the
+    // damage). Reads LIVE state, so it catches mid-fight tile transforms
+    // (PNest solid→venom) and cover changes the cached s_damagingMap misses.
+    // Self-disables to IsDamagingTile after repeated failures (stale RVA/offset/
+    // map pointer on a game update). All three offsets are game-version-specific.
+    using SquareLookupFn = void* (__fastcall*)(void* map, int tx, int ty, void* methodInfo);
+    static SquareLookupFn s_squareLookup = nullptr;
+    static bool s_liveHazResolved = false;
+    static bool s_liveHazOk = true;
+    static int  s_liveHazFails = 0;
+    static constexpr uintptr_t kSquareLookupRva = 0x1CA7B60;
+    static constexpr uint32_t  kSquareDamageOff = 0x58;   // i32 ground damage
+    static constexpr uint32_t  kSquareCoverOff  = 0x48;   // cover ref (0 = uncovered)
+
+    // SEH-isolated raw call — POD locals only (no C++ unwinding → no C2712).
+    // Returns 1 = hazardous, 0 = safe, -1 = call/read failed.
+    static int QuerySquareHazard(void* map, int tx, int ty)
+    {
+        int result = -1;
+        __try {
+            void* sq = s_squareLookup(map, tx, ty, nullptr);
+            if (!sq) {
+                result = 0;
+            } else {
+                const uint8_t* p = reinterpret_cast<const uint8_t*>(sq);
+                const int dmg = *reinterpret_cast<const int*>(p + kSquareDamageOff);
+                if (dmg <= 0) {
+                    result = 0;
+                } else {
+                    const uint64_t cover = *reinterpret_cast<const uint64_t*>(p + kSquareCoverOff);
+                    result = (cover != 0) ? 0 : 1;   // covered → safe; uncovered → hazard
+                }
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            result = -1;
+        }
+        return result;
+    }
+
+    bool IsTileDamagingLive(int tx, int ty)
+    {
+        if (!s_liveHazResolved) {
+            s_liveHazResolved = true;
+            if (HMODULE h = GetModuleHandleW(L"GameAssembly.dll"))
+                s_squareLookup = reinterpret_cast<SquareLookupFn>(
+                    reinterpret_cast<uintptr_t>(h) + kSquareLookupRva);
+        }
+        if (s_liveHazOk && s_squareLookup) {
+            if (void* map = GameState::GetWorldMgr()) {
+                const int r = QuerySquareHazard(map, tx, ty);
+                if (r >= 0) { s_liveHazFails = 0; return r != 0; }
+                if (++s_liveHazFails >= 8) {
+                    s_liveHazOk = false;   // latch to cache (== today's behaviour)
+                    DBG_FILE_LOG("[RePP] live hazard square_lookup faulted 8x -> latched OFF, "
+                                 "using cached IsDamagingTile. Verify the map pointer / RVA 0x1CA7B60.");
+                }
+            }
+        }
+        return IsDamagingTile(tx, ty);   // cached fallback (== current behaviour)
     }
 
     // Returns the XML speed multiplier for the tile at (tx, ty).

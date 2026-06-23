@@ -13,6 +13,7 @@ enum class DodgeMode : int {
     RolloutGrid = 2,  // Forward input-simulation, uniform-grid broad-phase (RolloutDodge).
     RolloutQuad = 3,  // Same engine, quadtree broad-phase (A/B against the grid version).
     ZDodge      = 4,  // Intent-preserving slide-assist dodge (zdodge).
+    RePP        = 5,  // RE++ next-gen reactive dodge (repp).
 };
 
 DodgeMode GetDodgeMode();

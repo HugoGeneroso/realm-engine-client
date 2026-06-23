@@ -6,6 +6,7 @@
 #include "RolloutDodge.h"
 #include "ZDodge.h"
 #include "ZDodgeTarget.h"
+#include "RePP.h"
 #include "DbgFileLog.h"
 #include <windows.h>
 
@@ -134,13 +135,15 @@ void ApplyDodgeModeWithEnter(DodgeMode nextMode)
     XDodge::SetEnabled(nextMode == DodgeMode::XDodge);
     RolloutDodge::SetEnabled(rollout);
     ZDodge::SetEnabled(nextMode == DodgeMode::ZDodge);
+    RePP::SetEnabled(nextMode == DodgeMode::RePP);
 
 
     DBG_FILE_LOG("[DodgeSwap] ApplyDodgeModeWithEnter nextMode=" << static_cast<int>(nextMode)
-        << " (0=Off 1=XDodge 2=RollGrid 3=RollQuad 4=ZDodge)"
+        << " (0=Off 1=XDodge 2=RollGrid 3=RollQuad 4=ZDodge 5=RePP)"
         << " -> enabled{ XDodge=" << XDodge::IsEnabled()
         << " Rollout=" << RolloutDodge::IsEnabled()
-        << " ZDodge=" << ZDodge::IsEnabled() << " }");
+        << " ZDodge=" << ZDodge::IsEnabled()
+        << " RePP=" << RePP::IsEnabled() << " }");
     if (nextMode == DodgeMode::XDodge) {
         XDodge::OnEnter();
         // Install the AppEngineManager::Update detour that drives the dodge Tick.
@@ -159,6 +162,9 @@ void ApplyDodgeModeWithEnter(DodgeMode nextMode)
         DangerPlanner::TryInstall();
     } else if (nextMode == DodgeMode::ZDodge) {
         ZDodge::OnEnter();
+        DangerPlanner::TryInstall();
+    } else if (nextMode == DodgeMode::RePP) {
+        RePP::OnEnter();
         DangerPlanner::TryInstall();
     }
 
@@ -642,6 +648,9 @@ void TestTAB::Tick(bool menuVisible)
                 ZDodge::RenderDebugOverlay(camX, camY, angleRad, zoom, cx, cy);
                 ZDodge::Target::Render(dl, camX, camY, angleRad, zoom, cx, cy);
             }
+            if (RePP::IsEnabled()) {
+                RePP::RenderDebugOverlay(camX, camY, angleRad, zoom, cx, cy);
+            }
         }
 
         // Locked enemy visualization — red reticle + two rings:
@@ -952,7 +961,7 @@ void TestTAB::RenderMovementSection()
     ImGui::Indent(8.f);
 
     int modeIdx = static_cast<int>(g_dodgeMode);
-    const char* modeLabels[] = { "Off", "RE-Plus", "RE-Sim (Grid)", "RE-Sim (Quadtree)", "zDodge" };
+    const char* modeLabels[] = { "Off", "RE-Plus", "RE-Sim (Grid)", "RE-Sim (Quadtree)", "zDodge", "RE++" };
     ImGui::SetNextItemWidth(240.f);
     if (ImGui::Combo("Mode##dodgeModeCombo", &modeIdx, modeLabels, IM_ARRAYSIZE(modeLabels))) {
         ApplyDodgeModeWithEnter(static_cast<DodgeMode>(modeIdx));
@@ -970,6 +979,9 @@ void TestTAB::RenderMovementSection()
     } else if (g_dodgeMode == DodgeMode::ZDodge) {
         ImGui::Spacing();
         ZDodge::RenderSettings();
+    } else if (g_dodgeMode == DodgeMode::RePP) {
+        ImGui::Spacing();
+        RePP::RenderSettings();
     }
 
     ImGui::Unindent(8.f);
@@ -1182,6 +1194,81 @@ void TestTAB::Render()
     ImGui::Separator();
     ImGui::Spacing();
 
+    // ── Offset Health (resolution status of every game-version offset) ────────
+    ImGui::TextColored(ImVec4(1.f, 0.75f, 0.2f, 1.f), "OFFSET HEALTH");
+    ImGui::Indent(8.f);
+    {
+        // Live sanity: auto-flag any critical offset reading clear garbage
+        // (e.g. a stale defense/damage offset behind over-estimated damage).
+        if (LocalPlayer::GetPtr())
+            RuntimeOffsets::SanityCheckPlayerStats(LocalPlayer::GetHP(), LocalPlayer::GetMaxHP(), LocalPlayer::GetDefense());
+        {
+            static std::vector<WorldProjectile> s_sanityProjs;
+            s_sanityProjs.clear();
+            ProjectileTracking::CopyActiveForDraw(s_sanityProjs);
+            for (const WorldProjectile& pr : s_sanityProjs)
+                if (pr.valid && pr.damage != 0) { RuntimeOffsets::SanityCheckProjDamage(pr.damage); break; }
+        }
+
+        int nResolved = 0, nFallback = 0, nSuspect = 0, nPending = 0;
+        RuntimeOffsets::GetOffsetSummary(nResolved, nFallback, nSuspect, nPending);
+        ImGui::Text("resolved %d", nResolved);
+        ImGui::SameLine();
+        ImGui::TextColored(nFallback > 0 ? ImVec4(1.f, 0.85f, 0.2f, 1.f) : ImVec4(0.55f, 0.55f, 0.55f, 1.f),
+            "  fallback %d", nFallback);
+        ImGui::SameLine();
+        ImGui::TextColored(nSuspect > 0 ? ImVec4(1.f, 0.35f, 0.35f, 1.f) : ImVec4(0.55f, 0.55f, 0.55f, 1.f),
+            "  suspect %d", nSuspect);
+        ImGui::SameLine();
+        ImGui::TextDisabled("  pending %d", nPending);
+        if (nFallback > 0 || nSuspect > 0)
+            ImGui::TextColored(ImVec4(1.f, 0.45f, 0.2f, 1.f),
+                "STALE OFFSETS after this patch — update RuntimeOffsets (names/values).");
+
+        static bool s_showAllOffsets = false;
+        ImGui::Checkbox("Show all (not just problems)##offhealth", &s_showAllOffsets);
+
+        static RuntimeOffsets::OffsetReportRow s_offRows[256];
+        const int total = RuntimeOffsets::GetOffsetReport(s_offRows, 256);
+        const int shown = (total < 256) ? total : 256;
+        const ImGuiTableFlags tf = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY;
+        if (ImGui::BeginTable("offhealth", 4, tf, ImVec2(-1.f, 220.f))) {
+            ImGui::TableSetupColumn("class::field");
+            ImGui::TableSetupColumn("fallback");
+            ImGui::TableSetupColumn("live");
+            ImGui::TableSetupColumn("status");
+            ImGui::TableHeadersRow();
+            for (int i = 0; i < shown; ++i) {
+                const RuntimeOffsets::OffsetReportRow& r = s_offRows[i];
+                const bool healthy = (r.state == RuntimeOffsets::OffsetState::ResolvedMatch ||
+                                      r.state == RuntimeOffsets::OffsetState::ResolvedShifted ||
+                                      r.state == RuntimeOffsets::OffsetState::Pending);  // pending = transient (first ~5s)
+                if (!s_showAllOffsets && healthy) continue;
+                const char* st = "pending";
+                ImVec4 col(0.55f, 0.55f, 0.55f, 1.f);
+                switch (r.state) {
+                    case RuntimeOffsets::OffsetState::ResolvedMatch:     st = "resolved";        col = ImVec4(0.5f, 0.85f, 0.5f, 1.f); break;
+                    case RuntimeOffsets::OffsetState::ResolvedShifted:   st = "resolved (moved)"; col = ImVec4(0.5f, 0.8f, 0.95f, 1.f); break;
+                    case RuntimeOffsets::OffsetState::FallbackFieldName: st = "STALE (renamed)";  col = ImVec4(1.f, 0.85f, 0.2f, 1.f);  break;
+                    case RuntimeOffsets::OffsetState::FallbackGaveUp:    st = "STALE (no class)"; col = ImVec4(1.f, 0.7f, 0.2f, 1.f);   break;
+                    case RuntimeOffsets::OffsetState::Suspect:          st = "SUSPECT";          col = ImVec4(1.f, 0.35f, 0.35f, 1.f); break;
+                    default:                                            break;
+                }
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn(); ImGui::Text("%s::%s", r.className, r.fieldName);
+                ImGui::TableNextColumn(); ImGui::Text("0x%X", r.fallback);
+                ImGui::TableNextColumn(); ImGui::Text("0x%X", r.value);
+                ImGui::TableNextColumn(); ImGui::TextColored(col, "%s", st);
+            }
+            ImGui::EndTable();
+        }
+    }
+    ImGui::Unindent(8.f);
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
     // ── Game Hitbox Debug (client collisionRadiusMultiplier) ──────────────────
     ImGui::TextColored(ImVec4(1.f, 0.75f, 0.2f, 1.f), "GAME HITBOX DEBUG");
     ImGui::Indent(8.f);
@@ -1285,7 +1372,7 @@ namespace TestTAB {
     void      SetDodgeMode(DodgeMode m)
     {
         const int v = static_cast<int>(m);
-        ApplyDodgeModeWithEnter((v >= 0 && v <= static_cast<int>(DodgeMode::ZDodge))
+        ApplyDodgeModeWithEnter((v >= 0 && v <= static_cast<int>(DodgeMode::RePP))
             ? m : DodgeMode::Off);
     }
     // SetDodgeModeWithEnter — IpcBridge calls this to route a dashboard dodge-mode
