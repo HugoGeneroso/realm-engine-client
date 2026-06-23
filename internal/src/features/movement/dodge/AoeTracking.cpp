@@ -3,6 +3,7 @@
 #include "Il2CppResolver.h"
 #include "GameState.h"
 #include "RuntimeOffsets.h"
+#include "DbgFileLog.h"
 #include "minhook/MinHook.h"
 #include <windows.h>
 #include <atomic>
@@ -461,12 +462,69 @@ using GjjKobFn = void* (__fastcall*)(void* self, int64_t origin, int64_t dest,
 static GjjKobFn g_OrigGjjKob = nullptr;
 static void*    g_GjjTarget   = nullptr;
 
+// ── GJJ field-offset self-heal via param-match ──────────────────────────────
+// KOBMINBDOBD is handed the true origin/dest as params, so we can recover the
+// (BeeByte-renamed) origin/dest FIELD offsets deterministically: match each param
+// value against the instance's float pairs. Runs until resolved; one throwable
+// (e.g. a Medusa cast in the Godlands) is enough.
+static std::atomic<bool> g_gjjFieldsResolved{ false };
+static uint32_t          g_gjjResolvedOriginOff = 0;
+static uint32_t          g_gjjResolvedDestOff   = 0;
+
+// Scan `self` for the Vector2 field (two consecutive floats) equal to (vx,vy).
+// SEH-guarded, POD-only (no C++ unwinding in the __try) — a read past the object
+// faults into __except and returns 0. Returns the byte offset, or 0 if not found.
+static uint32_t FindVec2FieldOffset(void* self, float vx, float vy)
+{
+    if (!AddrOk(self)) return 0;
+    __try {
+        const uint8_t* base = reinterpret_cast<const uint8_t*>(self);
+        for (uint32_t off = 0x10u; off + 8u <= 0x800u; off += 4u) {
+            const float fx = *reinterpret_cast<const float*>(base + off);
+            const float fy = *reinterpret_cast<const float*>(base + off + 4u);
+            if (fabsf(fx - vx) < 0.01f && fabsf(fy - vy) < 0.01f) return off;
+        }
+        return 0;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return 0;
+    }
+}
+
 static void* __fastcall GjjKobDetour(void* self, int64_t origin, int64_t dest,
                                      void* colorPtr, int32_t dur, void* method)
 {
     void* ret = nullptr;
     if (g_OrigGjjKob)
         ret = g_OrigGjjKob(self, origin, dest, colorPtr, dur, method);
+
+    // Self-heal the GJJ origin/dest field offsets from the method params (ground
+    // truth, rename-proof). One matched throwable corrects RuntimeOffsets::Gjj_*,
+    // so TryReadGjjFromSelf below reads the right place even after a BeeByte rename.
+    if (AddrOk(self) && !g_gjjFieldsResolved.load(std::memory_order_relaxed)) {
+        const uint32_t olo = static_cast<uint32_t>(static_cast<uint64_t>(origin));
+        const uint32_t ohi = static_cast<uint32_t>(static_cast<uint64_t>(origin) >> 32);
+        const uint32_t dlo = static_cast<uint32_t>(static_cast<uint64_t>(dest));
+        const uint32_t dhi = static_cast<uint32_t>(static_cast<uint64_t>(dest) >> 32);
+        float pox, poy, pdx, pdy;
+        std::memcpy(&pox, &olo, 4); std::memcpy(&poy, &ohi, 4);
+        std::memcpy(&pdx, &dlo, 4); std::memcpy(&pdy, &dhi, 4);
+        if (std::isfinite(pox) && std::isfinite(poy) && (pox != 0.f || poy != 0.f)) {
+            const uint32_t oOff = FindVec2FieldOffset(self, pox, poy);
+            if (oOff) {
+                RuntimeOffsets::Gjj_OriginX = oOff;
+                RuntimeOffsets::Gjj_OriginY = oOff + 4u;
+                uint32_t dOff = (std::isfinite(pdx) && std::isfinite(pdy))
+                                ? FindVec2FieldOffset(self, pdx, pdy) : 0u;
+                if (dOff) { RuntimeOffsets::Gjj_DestX = dOff; RuntimeOffsets::Gjj_DestY = dOff + 4u; }
+                g_gjjResolvedOriginOff = oOff;
+                g_gjjResolvedDestOff   = dOff;
+                g_gjjFieldsResolved.store(true, std::memory_order_relaxed);
+                DBG_FILE_LOG("[AoeTracking] GJJ fields self-healed via param-match: origin=0x"
+                    << std::hex << oOff << " dest=0x" << dOff << std::dec
+                    << " (fallbacks were 0x368/0x370)");
+            }
+        }
+    }
 
     // #region agent log
     if (!AddrOk(self)) {
@@ -937,6 +995,13 @@ static bool HookExplosionPath()
 
 // ─────────────────────────────────────────────────────────────────────────────
 namespace AoeTracking {
+
+void GetGjjProbe(bool& resolved, uint32_t& originOff, uint32_t& destOff)
+{
+    resolved  = g_gjjFieldsResolved.load(std::memory_order_relaxed);
+    originOff = g_gjjResolvedOriginOff;
+    destOff   = g_gjjResolvedDestOff;
+}
 
 void Install()
 {

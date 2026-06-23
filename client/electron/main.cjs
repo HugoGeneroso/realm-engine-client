@@ -172,7 +172,7 @@ body{background:#0d1117;color:#e6edf3;font-family:-apple-system,BlinkMacSystemFo
 ${_logoTag}
 <div style="font-size:22px;font-weight:600;margin-bottom:8px">Realm Engine</div>
 <div id="s" style="font-size:13px;color:#8b949e;margin-bottom:32px">Starting...</div>
-<div id="sp" style="width:28px;height:28px;border:3px solid #21262d;border-top-color:#3fb950;border-radius:50%;animation:spin .8s linear infinite"></div>
+<div id="sp" style="width:28px;height:28px;border:3px solid #21262d;border-top-color:#2dd4bf;border-radius:50%;animation:spin .8s linear infinite"></div>
 <div id="wc">
 <button class="wb" onclick="window.electronAPI&&window.electronAPI.minimize()"><svg viewBox="0 0 12 12" width="12" height="12"><rect y="5" width="12" height="1.5" fill="currentColor"/></svg></button>
 <button class="wb" onclick="window.electronAPI&&window.electronAPI.maximize()"><svg viewBox="0 0 12 12" width="12" height="12"><rect x="1" y="1" width="10" height="10" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button>

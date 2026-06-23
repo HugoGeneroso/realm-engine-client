@@ -215,6 +215,24 @@ static FieldInfo* FindFieldOnHierarchy(Il2CppClass* klass, const char* name)
 
 // ── Resolution table ─────────────────────────────────────────────────────
 //
+// ┌─ UPDATE THIS EACH GAME PATCH ───────────────────────────────────────────┐
+// │ BeeByte re-randomizes class/field NAMES (and sometimes offsets) every    │
+// │ Exalt build, so name-resolution silently fails and these fallbacks are   │
+// │ used stale. To find what broke after a patch:                            │
+// │   1. Build + in-game open  Test tab → OFFSET HEALTH.  Stale offsets show  │
+// │      yellow (STALE renamed / no-class) or red (SUSPECT = read garbage).   │
+// │   2. From a fresh Il2CppInspector dump of the new build, get the new      │
+// │      obfuscated class + field name AND the offset for each flagged row.   │
+// │   3. Update that row here: the className, the tryNames[] (put the NEW     │
+// │      name first; old names can stay as extra candidates), and the         │
+// │      `outPtr` variable's fallback initializer above (lines ~20-193).      │
+// │ A row resolves automatically once its className+fieldName match metadata; │
+// │ the fallback only bites when the NAME is wrong. So fixing the NAME is     │
+// │ usually enough — the offset then comes live from il2cpp_field_get_offset. │
+// │ CRITICAL rows (verify first): HP/MaxHP/Defense (LKHPPBEGNOM) and          │
+// │ Hbeak_InstanceDamage (HBEAKBIHANL) — these feed AutoNexus damage calc.    │
+// └─────────────────────────────────────────────────────────────────────────┘
+//
 // Each Entry:
 //   className  — passed to Resolver::FindClassLoose
 //   tryNames   — candidate field names tried in order (up to 4)
@@ -460,7 +478,194 @@ static ULONGLONG s_firstCallTick       = 0;
 static constexpr ULONGLONG kGiveUpMs   = 5000ULL;
 
 bool HasGivenUp() { return s_giveUpFired; }
+bool AllResolved() { return s_allDone; }
+
+// ── Structural auto-recovery (Phase 1 / A1) ──────────────────────────────────
+static Il2CppClass* s_recoveredProjClass = nullptr;
+static bool         s_structScanDone     = false;
+
+Il2CppClass* GetRecoveredProjClass() { return s_recoveredProjClass; }
+
+// The projectile instance class is the (best) class holding a field whose type is
+// ProjectileProperties — a relationship BeeByte's per-patch renames cannot change.
+// Disambiguate candidates by also having >=2 float fields (pos/angle) and an int
+// field (damage), so a class that merely references ProjectileProperties for some
+// other reason doesn't win.
+static Il2CppClass* ScanForProjectileClass()
+{
+    Il2CppClass* ppClass = Resolver::FindClassLoose("ProjectileProperties");
+    if (!ppClass) return nullptr;
+    Il2CppClass* singleClass = Resolver::FindClass("System", "Single");
+    Il2CppClass* int32Class  = Resolver::FindClass("System", "Int32");
+
+    struct Ctx {
+        Il2CppClass* pp; Il2CppClass* single; Il2CppClass* i32;
+        Il2CppClass* best; int bestScore;
+    } ctx{ ppClass, singleClass, int32Class, nullptr, -1 };
+
+    il2cpp_class_for_each([](Il2CppClass* klass, void* ud) {
+        auto* c = static_cast<Ctx*>(ud);
+        void* iter = nullptr;
+        bool hasProps = false;
+        int  floats = 0, ints = 0;
+        for (FieldInfo* f; (f = il2cpp_class_get_fields(klass, &iter)) != nullptr; ) {
+            const Il2CppType* ft = il2cpp_field_get_type(f);
+            if (!ft) continue;
+            Il2CppClass* fc = il2cpp_class_from_type(ft);
+            if      (fc == c->pp)     hasProps = true;
+            else if (fc == c->single) ++floats;
+            else if (fc == c->i32)    ++ints;
+        }
+        if (!hasProps) return;
+        const int score = (floats >= 2 ? 2 : 0) + (ints >= 1 ? 1 : 0);
+        if (score > c->bestScore) { c->bestScore = score; c->best = klass; }
+    }, &ctx);
+
+    return ctx.best;
+}
+
+int AutoResolveByStructure()
+{
+    if (s_structScanDone) return 0;   // the metadata walk is expensive — run it once
+    s_structScanDone = true;
+
+    int healed = 0;
+    if (Il2CppClass* proj = ScanForProjectileClass()) {
+        s_recoveredProjClass = proj;
+        ++healed;
+        DBG_FILE_LOG("[RuntimeOffsets] AutoResolveByStructure: projectile class recovered via "
+            "ProjectileProperties* anchor (name='" << il2cpp_class_get_name(proj) << "')");
+    } else {
+        DBG_FILE_LOG("[RuntimeOffsets] AutoResolveByStructure: projectile class NOT found "
+            "(ProjectileProperties anchor missing or no candidate matched)");
+    }
+    // TODO(A1b/Phase 2): resolve Hbeak_InstanceDamage by live value-range against
+    // [MinDamage,MaxDamage], and write the recovered class/offsets back into
+    // s_entries so the BootGate audit + Quest Board flip GREEN (today they stay
+    // stale because EnsureAll's name pass still can't resolve the renamed name).
+    return healed;
+}
 const char* GetUnresolvedClassNames()  { return s_unresolvedClassNames; }
+
+// ── Offset health status (parallel to s_entries) ─────────────────────────────
+static OffsetState s_entryState[kEntryCount];     // OffsetState::Pending (0) by default
+static uint32_t    s_entryFallback[kEntryCount];  // snapshot of each initial fallback
+static bool        s_fallbackSnapped = false;
+
+int GetOffsetReport(OffsetReportRow* out, int maxRows)
+{
+    if (out) {
+        for (int i = 0; i < kEntryCount && i < maxRows; ++i) {
+            OffsetReportRow& r = out[i];
+            r.className = s_entries[i].className;
+            r.fieldName = s_entries[i].tryCount ? s_entries[i].tryNames[0] : "?";
+            r.fallback  = s_fallbackSnapped ? s_entryFallback[i] : *s_entries[i].outPtr;
+            r.value     = *s_entries[i].outPtr;
+            r.state     = s_entryState[i];
+        }
+    }
+    return kEntryCount;
+}
+
+void GetOffsetSummary(int& resolved, int& usingFallback, int& suspect, int& pending)
+{
+    resolved = usingFallback = suspect = pending = 0;
+    for (int i = 0; i < kEntryCount; ++i) {
+        switch (s_entryState[i]) {
+            case OffsetState::ResolvedMatch:
+            case OffsetState::ResolvedShifted:   ++resolved;      break;
+            case OffsetState::FallbackFieldName:
+            case OffsetState::FallbackGaveUp:    ++usingFallback; break;
+            case OffsetState::Suspect:           ++suspect;       break;
+            default:                             ++pending;       break;
+        }
+    }
+}
+
+void MarkSuspect(const uint32_t* offsetVar)
+{
+    for (int i = 0; i < kEntryCount; ++i)
+        if (s_entries[i].outPtr == offsetVar) { s_entryState[i] = OffsetState::Suspect; return; }
+}
+
+// ── A4: recover renamed classes from a LIVE OBJECT the cheat already holds ────
+// `il2cpp_object_get_class(instance)` is the gold-standard rung — it can't be
+// wrong. FindFieldOnHierarchy walks the instance's whole parent chain, so one
+// player instance covers the FKALGHJIADI→LKHPPBEGNOM→KJMONHENJEN hierarchy, and
+// the WorldManager instance covers HJMBOMEHGDJ. We re-resolve ONLY entries that
+// are currently broken (class never resolved → FallbackGaveUp); healthy offsets
+// are never touched. Heals the class-rename case (field names still stable);
+// field-name renames within a recovered class still need value/param matching.
+int RecoverFromInstance(void* instance)
+{
+    if (!instance) return 0;
+    Il2CppClass* cls = il2cpp_object_get_class(reinterpret_cast<Il2CppObject*>(instance));
+    if (!cls) return 0;
+    const char* clsName = il2cpp_class_get_name(cls);
+
+    int healed = 0;
+    for (int i = 0; i < kEntryCount; ++i) {
+        if (s_entryState[i] != OffsetState::FallbackGaveUp) continue;   // only heal broken entries
+        Entry& e = s_entries[i];
+        for (int t = 0; t < e.tryCount; ++t) {
+            FieldInfo* f = FindFieldOnHierarchy(cls, e.tryNames[t]);
+            if (!f) continue;
+            const uint32_t resolved = static_cast<uint32_t>(il2cpp_field_get_offset(f)) + e.actkShift;
+            *e.outPtr = resolved;
+            s_entryState[i] = (resolved == s_entryFallback[i]) ? OffsetState::ResolvedMatch
+                                                              : OffsetState::ResolvedShifted;
+            e.done = true;
+            ++healed;
+            DBG_FILE_LOG("[RuntimeOffsets] RecoverFromInstance(live '" << (clsName ? clsName : "?")
+                << "'): " << e.className << "::" << e.tryNames[t] << " healed -> 0x"
+                << std::hex << resolved << std::dec);
+            break;
+        }
+    }
+    if (healed)
+        DBG_FILE_LOG("[RuntimeOffsets] RecoverFromInstance via live class '"
+            << (clsName ? clsName : "?") << "' healed " << healed << " entr(ies)");
+    return healed;
+}
+
+// SEH-guarded raw pointer read — its own function so the __try contains no C++
+// object unwinding (avoids C2712).
+static void* SafeReadPtr(void* base, uint32_t off)
+{
+    if (!base) return nullptr;
+    __try { return *reinterpret_cast<void**>(reinterpret_cast<uint8_t*>(base) + off); }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return nullptr; }
+}
+
+// A4 tile chain: a live tile instance heals BGAIOPJMHLO (incl. its TileProps field
+// offset), then we read the now-correct TileProps pointer and heal CMFPKCJHKKB
+// (XmlTileProperties) from it. One call converges both — no frame dependency.
+int RecoverTileChain(void* tileInstance)
+{
+    if (!tileInstance) return 0;
+    int healed = RecoverFromInstance(tileInstance);     // BGAIOPJMHLO (+ TileProps offset)
+    void* props = SafeReadPtr(tileInstance, TileProps); // now-healed offset
+    if (props) healed += RecoverFromInstance(props);    // CMFPKCJHKKB
+    return healed;
+}
+
+// Conservative bounds — only values a CORRECT offset can never produce, so a
+// legitimate edge state (0 def, huge-HP boss pet, etc.) is not false-flagged.
+void SanityCheckPlayerStats(int32_t hp, int32_t maxHp, int32_t defense)
+{
+    // Player not loaded yet (char-select / between worlds): all-zero is "not
+    // populated", not a stale offset — a stale offset reads WILD values, not clean
+    // zeros. Skip so we don't falsely flag MaxHP at char-select.
+    if (hp == 0 && maxHp == 0 && defense == 0) return;
+    if (maxHp <= 0 || maxHp > 1000000) MarkSuspect(&MaxHP);
+    if (hp < -1000 || (maxHp > 0 && maxHp <= 1000000 && hp > maxHp * 5)) MarkSuspect(&HP);
+    if (defense < 0 || defense > 2000) MarkSuspect(&Defense);
+}
+
+void SanityCheckProjDamage(int32_t sampledDamage)
+{
+    if (sampledDamage < 0 || sampledDamage > 1000000) MarkSuspect(&Hbeak_InstanceDamage);
+}
 
 void EnsureAll()
 {
@@ -471,6 +676,11 @@ void EnsureAll()
         Sfx_Pos1Y   = Sfx_Pos1X   + 4;
         Sfx_Pos2Y   = Sfx_Pos2X   + 4;
         return;
+    }
+
+    if (!s_fallbackSnapped) {
+        s_fallbackSnapped = true;
+        for (int i = 0; i < kEntryCount; ++i) s_entryFallback[i] = *s_entries[i].outPtr;
     }
 
     const ULONGLONG now = GetTickCount64();
@@ -510,6 +720,7 @@ void EnsureAll()
                 << (e.tryCount ? e.tryNames[0] : "?")
                 << " GIVE UP after timeout — keeping fallback 0x"
                 << std::hex << *e.outPtr << std::dec);
+            s_entryState[i] = OffsetState::FallbackGaveUp;
             e.done = true;
             continue;
         }
@@ -542,10 +753,13 @@ void EnsureAll()
                 << " (fallback was 0x" << fallback << std::dec
                 << (resolved == fallback ? ", match)" : ", SHIFTED)"));
             *e.outPtr = resolved;
+            s_entryState[i] = (resolved == fallback) ? OffsetState::ResolvedMatch
+                                                     : OffsetState::ResolvedShifted;
         } else {
             DBG_FILE_LOG("[RuntimeOffsets] " << e.className << "::"
                 << (e.tryCount ? e.tryNames[0] : "?")
                 << " FIELD NAME NOT FOUND — using fallback 0x" << std::hex << fallback << std::dec);
+            s_entryState[i] = OffsetState::FallbackFieldName;
         }
 
         e.done = true;

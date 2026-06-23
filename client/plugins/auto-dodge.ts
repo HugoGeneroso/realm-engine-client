@@ -2,13 +2,14 @@ import type { PluginContext } from '../src/plugins/PluginContext.js';
 import { sendDllFeature } from '../src/bridge/DllFeatureBus.js';
 
 // Maps the dashboard string value to the C++ TestTAB::DodgeMode enum.
-// Off=0, XDodge=1, RolloutGrid=2, RolloutQuad=3, zDodge=4.
+// Off=0, XDodge=1, RolloutGrid=2, RolloutQuad=3, zDodge=4, RePP=5.
 // XDodge uses A* (goal-directed) with BFS fallback (immediate escape),
 // ported from XRebuild/XDriver decompile. RE-Sim does per-input forward
 // simulation; the two RE-Sim modes differ only in broad-phase backend
 // (grid vs quadtree) so they can be A/B-compared. zDodge is an
-// intent-preserving slide-assist dodge.
-const DODGE_VALUES = ['off', 'xdodge', 'rollout-grid', 'rollout-quad', 'zdodge'] as const;
+// intent-preserving slide-assist dodge. RePP (RE++) is the next-gen
+// reactive dodge.
+const DODGE_VALUES = ['off', 'xdodge', 'rollout-grid', 'rollout-quad', 'zdodge', 're-plus-plus'] as const;
 type ActiveDodgeMode = Exclude<(typeof DODGE_VALUES)[number], 'off'>;
 type SettingConfig = Parameters<PluginContext['registerSetting']>[1];
 type SettingCallback = Parameters<PluginContext['registerSetting']>[2];
@@ -60,6 +61,7 @@ export function register(ctx: PluginContext) {
       { label: 'RE-Sim (Grid)', value: 'rollout-grid' },
       { label: 'RE-Sim (Quadtree)', value: 'rollout-quad' },
       { label: 'zDodge', value: 'zdodge' },
+      { label: 'RE++', value: 're-plus-plus' },
     ],
   }, () => flush());
 
@@ -201,6 +203,45 @@ export function register(ctx: PluginContext) {
     (v: string) => sendDllFeature('zdodgeDebugOverlay', v === 'on' ? 1 : 0));
   registerModeSetting('zdodge', 'zdodgeCandidateOverlay', onOff('[zDodge] Candidate points', 'on'),
     (v: string) => sendDllFeature('zdodgeCandidateOverlay', v === 'on' ? 1 : 0));
+
+  // ── RE++ settings ─────────────────────────────────────────────────────────
+  registerModeSetting('re-plus-plus', 'reppReactWindowMs', {
+    label: '[RE++] React window (ms)',
+    type: 'range', value: 650, min: 100, max: 2500, step: 25,
+  }, (v: number) => sendDllFeature('reppReactWindowMs', v));
+  registerModeSetting('re-plus-plus', 'reppMaxMoveTiles', {
+    label: '[RE++] Max assist distance (tiles)',
+    type: 'range', value: 1, min: 0.2, max: 4, step: 0.05,
+  }, (v: number) => sendDllFeature('reppMaxMoveTiles', v));
+  registerModeSetting('re-plus-plus', 'reppHitScale', {
+    label: '[RE++] Hit scale', advanced: true,
+    type: 'range', value: 1, min: 0.5, max: 2, step: 0.05,
+  }, (v: number) => sendDllFeature('reppHitScale', v));
+  registerModeSetting('re-plus-plus', 'reppDangerWeight', {
+    label: '[RE++] Danger weight',
+    type: 'range', value: 2, min: 0, max: 5, step: 0.1,
+  }, (v: number) => sendDllFeature('reppDangerWeight', v));
+  registerModeSetting('re-plus-plus', 'reppMode', {
+    label: '[RE++] Mode',
+    type: 'select',
+    value: 'assist',
+    options: [
+      { label: 'Assist', value: 'assist' },
+      { label: 'Autopilot', value: 'autopilot' },
+    ],
+  }, (v: string) => sendDllFeature('reppMode', v === 'autopilot' ? 1 : 0));
+  registerModeSetting('re-plus-plus', 'reppFollowLantern',
+    onOff('[RE++][Autopilot] Follow stand-on object (lantern) — perf cost', 'off'),
+    (v: string) => sendDllFeature('reppFollowLantern', v === 'on' ? 1 : 0));
+  registerModeSetting('re-plus-plus', 'reppStandOnType', {
+    label: '[RE++][Autopilot] Stand-on objType (0=off; e.g. Moonlight Village lantern)',
+    advanced: true,
+    type: 'range', value: 0, min: 0, max: 65535, step: 1,
+  }, (v: number) => sendDllFeature('reppStandOnType', v));
+  registerModeSetting('re-plus-plus', 'reppAvoidHazards', onOff('[RE++] Avoid hazards', 'on'),
+    (v: string) => sendDllFeature('reppAvoidHazards', v === 'on' ? 1 : 0));
+  registerModeSetting('re-plus-plus', 'reppDebugOverlay', onOff('[RE++] Debug overlay', 'on'),
+    (v: string) => sendDllFeature('reppDebugOverlay', v === 'on' ? 1 : 0));
 
   registerModeSetting('xdodge', 'xdodgeAstar', onOff('[Goal] Smart goal pathing'),
     (v: string) => sendDllFeature('xdodgeAstar', v === 'on' ? 1 : 0));
@@ -344,6 +385,15 @@ export function register(ctx: PluginContext) {
     sendDllFeature('zdodgeProjectileRadiusFallback', ctx.getSetting<number>('zdodgeProjectileRadiusFallback'));
     sendDllFeature('zdodgeDamageThresholdPct', ctx.getSetting<number>('zdodgeDamageThresholdPct'));
     for (const k of ['zdodgeDebugOverlay', 'zdodgeCandidateOverlay'])
+      sendDllFeature(k, ctx.getSetting<string>(k) === 'on' ? 1 : 0);
+    // RE++ settings.
+    sendDllFeature('reppReactWindowMs', ctx.getSetting<number>('reppReactWindowMs'));
+    sendDllFeature('reppMaxMoveTiles', ctx.getSetting<number>('reppMaxMoveTiles'));
+    sendDllFeature('reppHitScale', ctx.getSetting<number>('reppHitScale'));
+    sendDllFeature('reppDangerWeight', ctx.getSetting<number>('reppDangerWeight'));
+    sendDllFeature('reppMode', ctx.getSetting<string>('reppMode') === 'autopilot' ? 1 : 0);
+    sendDllFeature('reppStandOnType', ctx.getSetting<number>('reppStandOnType'));
+    for (const k of ['reppFollowLantern', 'reppAvoidHazards', 'reppDebugOverlay'])
       sendDllFeature(k, ctx.getSetting<string>(k) === 'on' ? 1 : 0);
     // Re-apply the 60fps cap here too. The onEnabledChange / clientConnected
     // handlers were the only places setting targetFrameRate, so if the cap

@@ -23,6 +23,7 @@
 #include "XDodge.h"
 #include "RolloutDodge.h"
 #include "ZDodge.h"
+#include "RePP.h"
 #include "SpeedHack.h"
 #include <string>
 #include <cctype>
@@ -199,6 +200,22 @@ namespace {
         return ApplyFeatureTable(f, h, sizeof(h) / sizeof(h[0]));
     }
 
+    bool ApplyReppFeature(const FeatureCommand& f)
+    {
+        static const FeatureHandler h[] = {
+            FH_FLOAT("reppReactWindowMs", RePP::SetReactWindowMs),
+            FH_FLOAT("reppMaxMoveTiles", RePP::SetMaxMoveTiles),
+            FH_FLOAT("reppHitScale", RePP::SetHitScale),
+            FH_FLOAT("reppDangerWeight", RePP::SetDangerWeight),
+            FH_INT("reppMode", RePP::SetMode),
+            FH_INT("reppStandOnType", RePP::SetStandOnType),
+            FH_INT_BOOL("reppFollowLantern", RePP::SetFollowLantern),
+            FH_INT_BOOL("reppAvoidHazards", RePP::SetAvoidHazards),
+            FH_INT_BOOL("reppDebugOverlay", RePP::SetDebugOverlay)
+        };
+        return ApplyFeatureTable(f, h, sizeof(h) / sizeof(h[0]));
+    }
+
     bool ApplyInputCameraSkinFeature(const FeatureCommand& f)
     {
         static const FeatureHandler h[] = {
@@ -257,6 +274,7 @@ namespace FeatureCommandRegistry {
         if (ApplyCoreFeature(feature)) return true;
         if (ApplyXDodgeFeature(feature)) return true;
         if (ApplyZDodgeFeature(feature)) return true;
+        if (ApplyReppFeature(feature)) return true;
         if (ApplyRolloutFeature(feature)) return true;
         if (ApplyInputCameraSkinFeature(feature)) return true;
         ApplyDangerPlannerFeature(feature);
