@@ -17017,7 +17017,7 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
       var chip = document.createElement('button');
       chip.className = 'store-chip' + (c === storeActiveCategory ? ' active' : '');
       chip.setAttribute('data-cat', c);
-      var color = STORE_CAT_COLORS[c] || '#40916c';
+      var color = STORE_CAT_COLORS[c] || '#14b8a6';
       if (color) chip.style.setProperty('--chip-color', color);
       chip.textContent = c === 'all' ? 'All' : (c.charAt(0).toUpperCase() + c.slice(1));
       chip.addEventListener('click', function () {
