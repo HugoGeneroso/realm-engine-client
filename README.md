@@ -34,6 +34,9 @@
   - **Autoloot** — rules for tiers, gear categories, and consumables
   - **TypeScript SDK** — write your own hacks against a typed API
 
+  ### Developer tooling
+  - **RotMG MCP server** — an [MCP](https://modelcontextprotocol.io) server (`internal/tools/re-mcp`) that lets an MCP client (e.g. Claude) **runtime-test the live DLL**: read BootGate / offset-recovery state, resolve IL2CPP classes & field offsets on demand, and watch the dodge engine's decisions. Opt-in: toggle the diagnostics bridge in the in-game **Test** tab, then approve the bundled `.mcp.json`. See [`internal/tools/re-mcp/README.md`](./internal/tools/re-mcp/README.md).
+
   ---
 
   ## 🧱 Repository layout
@@ -123,5 +126,5 @@
   <summary><strong>Keywords (for search indexing)</strong></summary>
 
   realm engine, realm engine rotmg, rotmg hacks, rotmg cheats, rotmg mods, rotmg hack client, rotmg mod client, realm of the mad god hacks, realm of the mad god mods, open source rotmg, rotmg autonexus, rotmg autododge, rotmg autoloot, rotmg pathfinding, rotmg hack builder, exalt
-   hacks, exalt mods, IL2CPP injection, RotMG, RotMG Exalt
+   hacks, exalt mods, IL2CPP injection, RotMG, RotMG Exalt, mcp, rotmg mcp, realm of the mad god mcp, realm engine mcp, model context protocol, mcp server, rotmg mcp server, claude mcp, rotmg diagnostics, il2cpp mcp, game mcp server
   </details>
