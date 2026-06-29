@@ -7,8 +7,12 @@
 #include "features/combat/enemytracker/EnemyTracker.h"
 #include "GameState.h"
 #include "RuntimeOffsets.h"
+#include "BootGate.h"
 #include "ProjectileTracking.h"
 #include "AoeTracking.h"
+#include "DbgFileLog.h"
+#include "DangerPlanner.h"
+#include "FeatureState.h"
 
 #include <Windows.h>
 #include <atomic>
@@ -47,6 +51,23 @@ static int                  s_skipObjCount = 0;
 
 static ULONGLONG s_lastThrottleMs = 0;
 
+// Plugin IPC, FeatureState mirror, and/or dodge enemy-auto-lock (xdodgeAutoLock >= 1).
+static bool IsAimRequested()
+{
+    if (FeatureState::GetAutoAimEnabled()) return true;
+    if (s_enabled.load(std::memory_order_relaxed)) return true;
+    if (FeatureState::GetAutoDodgeMode() == 0) return false;
+    return DangerPlanner::GetAutoLockMode() >= 1;
+}
+
+static TargetSelector::Mode EffectiveAimMode()
+{
+    if (s_enabled.load(std::memory_order_relaxed))
+        return static_cast<TargetSelector::Mode>(s_aimModeInt.load(std::memory_order_relaxed));
+    // Dodge integrated lock without the Auto Aim plugin — closest enemy for shots.
+    return TargetSelector::Mode::ClosestToPlayer;
+}
+
 static bool LocalStealthBlocksAim(void* player)
 {
     if (s_shootWhileStealthed.load(std::memory_order_relaxed)) return false;
@@ -57,9 +78,68 @@ static bool LocalStealthBlocksAim(void* player)
     return RuntimeOffsets::HasCondition(full, RuntimeOffsets::ConditionEffects::Invisible);
 }
 
+// MSVC: __try/__except must live in functions without C++ locals that need unwinding.
+static bool SafeWeaponCalibratorTick(void* local)
+{
+    __try {
+        WeaponCalibrator::Tick(local);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+static bool SafeEnemyTrackerTick()
+{
+    __try {
+        EnemyTracker::Tick();
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+static bool SafeReadPlayerPos(void* local, float* outX, float* outY)
+{
+    float mx = 0.f, my = 0.f;
+    bool memOk = false;
+    __try {
+        uint8_t* lp = reinterpret_cast<uint8_t*>(local);
+        mx = *reinterpret_cast<float*>(lp + RuntimeOffsets::PosX);
+        my = *reinterpret_cast<float*>(lp + RuntimeOffsets::PosY);
+        memOk = std::isfinite(mx) && std::isfinite(my);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        memOk = false;
+    }
+
+    float wx = 0.f, wy = 0.f;
+    if (FeatureState::TryGetClientPos(wx, wy)) {
+        *outX = wx;
+        *outY = wy;
+        return true;
+    }
+    if (!memOk) return false;
+    *outX = mx;
+    *outY = my;
+    return true;
+}
+
+static bool SafeTargetSelect(const TargetSelector::Config& cfg,
+                             float px, float py,
+                             const WeaponProfile& weapon,
+                             TargetSelector::Result* out)
+{
+    __try {
+        *out = TargetSelector::Select(cfg, px, py, 0.f, 0.f, weapon);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
 static void RunTick()
 {
-    const bool aimOn = s_enabled.load(std::memory_order_relaxed);
+    const bool aimOn = IsAimRequested();
 
     void* local = GameState::GetLocalPtr();
 
@@ -72,24 +152,38 @@ static void RunTick()
         return;
     }
 
-    // Refresh shared data sources for target selection. EnemyTracker::Tick is
-    // self-throttled, so callers of EnumerateLiveEnemies can also trigger it.
-    WeaponCalibrator::Tick(local);
-    EnemyTracker::Tick();
+    static int s_lastFailPhase = -1;
+    static ULONGLONG s_lastPhaseLogMs = 0;
+
+    if (!SafeWeaponCalibratorTick(local)) {
+        const ULONGLONG now = GetTickCount64();
+        if (s_lastFailPhase != 0 || now - s_lastPhaseLogMs > 2000ULL) {
+            s_lastFailPhase = 0;
+            s_lastPhaseLogMs = now;
+            DBG_FILE_LOG("[AutoAim] RunTick SEH phase=WeaponCalibrator — clearing target");
+        }
+        s_hasTarget.store(false, std::memory_order_relaxed);
+        s_aimFocusId.store(0, std::memory_order_relaxed);
+        AimHooks::SetTarget(false, 0.f, 0.f);
+        return;
+    }
 
     float px = 0.f, py = 0.f;
-    __try {
-        uint8_t* lp = reinterpret_cast<uint8_t*>(local);
-        px = *reinterpret_cast<float*>(lp + RuntimeOffsets::PosX);
-        py = *reinterpret_cast<float*>(lp + RuntimeOffsets::PosY);
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    if (!SafeReadPlayerPos(local, &px, &py)) {
+        const ULONGLONG now = GetTickCount64();
+        if (s_lastFailPhase != 2 || now - s_lastPhaseLogMs > 2000ULL) {
+            s_lastFailPhase = 2;
+            s_lastPhaseLogMs = now;
+            DBG_FILE_LOG("[AutoAim] RunTick SEH phase=PlayerPos — clearing target");
+        }
         s_hasTarget.store(false, std::memory_order_relaxed);
+        s_aimFocusId.store(0, std::memory_order_relaxed);
         AimHooks::SetTarget(false, 0.f, 0.f);
         return;
     }
 
     TargetSelector::Config cfg;
-    cfg.mode                 = static_cast<TargetSelector::Mode>(s_aimModeInt.load(std::memory_order_relaxed));
+    cfg.mode                 = EffectiveAimMode();
     cfg.shootInvulnerable    = s_shootInvulnerable.load(std::memory_order_relaxed);
     cfg.prioritizeBosses     = s_prioritizeBosses.load(std::memory_order_relaxed);
     cfg.ignoreWalls          = s_ignoreWalls.load(std::memory_order_relaxed);
@@ -100,15 +194,48 @@ static void RunTick()
     cfg.skipObjTypes         = s_skipObjTypes;
     cfg.skipObjCount         = s_skipObjCount;
 
-    // Mouse world position is read inside TargetSelector::Select via TestTAB
-    const TargetSelector::Result result = TargetSelector::Select(
-        cfg, px, py, 0.f, 0.f, WeaponCalibrator::GetProfile());
+    TargetSelector::Result result{};
+    if (!SafeTargetSelect(cfg, px, py, WeaponCalibrator::GetProfile(), &result)) {
+        const ULONGLONG now = GetTickCount64();
+        if (s_lastFailPhase != 3 || now - s_lastPhaseLogMs > 2000ULL) {
+            s_lastFailPhase = 3;
+            s_lastPhaseLogMs = now;
+            DBG_FILE_LOG("[AutoAim] RunTick SEH phase=TargetSelect — clearing target");
+        }
+        s_hasTarget.store(false, std::memory_order_relaxed);
+        s_aimFocusId.store(0, std::memory_order_relaxed);
+        AimHooks::SetTarget(false, 0.f, 0.f);
+        return;
+    }
 
+    s_lastFailPhase = -1;
     s_hasTarget.store(result.found, std::memory_order_relaxed);
     s_aimX.store(result.aimX, std::memory_order_relaxed);
     s_aimY.store(result.aimY, std::memory_order_relaxed);
     s_aimFocusId.store(result.found ? result.enemyId : 0, std::memory_order_relaxed);
     AimHooks::SetTarget(result.found, result.aimX, result.aimY);
+}
+
+// __try in a separate function with no C++ locals — MSVC rejects mixing SEH with
+// destructors in the same function. Header safe_call() inlined into Tick() was
+// falsely tripping every frame; a local wrapper catches real AV without that.
+static bool SafeInvokeRunTick()
+{
+    __try {
+        RunTick();
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+static bool WantAutoFire(void* local)
+{
+    if (!local || !AimHooks::IsInstalled()) return false;
+    if (!s_hasTarget.load(std::memory_order_relaxed)) return false;
+    if (LocalStealthBlocksAim(local)) return false;
+    return true;
 }
 
 } // namespace
@@ -117,14 +244,26 @@ namespace AutoAim {
 
 void Install()
 {
-    // Lazy installs — safe to call every tick; each guards itself
-    ProjectileTracking::Install();
+    // Install shoot hooks as soon as we have a local player — redirect is gated on IsAimRequested().
+    if (GameState::GetLocalPtr() && !AimHooks::IsInstalled()) {
+        if (!AimHooks::Install()) {
+            static int s_n = 0;
+            if ((s_n++ % 240) == 0)
+                DBG_FILE_LOG("[AutoAim] AimHooks not installed yet (attempt=" << s_n << ")");
+        }
+    }
+
+    if (!IsAimRequested())
+        return;
+
+    if (BootGate::FeatureAllowed("ProjectileTracking"))
+        ProjectileTracking::RequestDeferredInstall();
     AoeTracking::Install();
-    AimHooks::Install();
 }
 
 void Uninstall()
 {
+    AimHooks::ReleaseAutoFire();
     AimHooks::Uninstall();
     s_hasTarget.store(false, std::memory_order_relaxed);
     s_aimFocusId.store(0, std::memory_order_relaxed);
@@ -135,18 +274,66 @@ void Tick()
 {
     Install();
 
+    // Always merge proxy wire enemies while in-world (independent of aim toggle).
+    if (GameState::GetLocalPtr())
+        SafeEnemyTrackerTick();
+
+    const bool aimOn = IsAimRequested();
+    AimHooks::SetAimActive(aimOn);
+
     const ULONGLONG wall = GetTickCount64();
     if (wall - s_lastThrottleMs < 8ULL) return;
     s_lastThrottleMs = wall;
 
-    RunTick();
+    if (!aimOn) {
+        s_hasTarget.store(false, std::memory_order_relaxed);
+        s_aimFocusId.store(0, std::memory_order_relaxed);
+        AimHooks::SetTarget(false, 0.f, 0.f);
+        AimHooks::ReleaseAutoFire();
+    } else if (!SafeInvokeRunTick()) {
+        static ULONGLONG s_lastLogMs = 0;
+        const ULONGLONG now = GetTickCount64();
+        if (now - s_lastLogMs > 2000ULL) {
+            s_lastLogMs = now;
+            DBG_FILE_LOG("[AutoAim] RunTick SEH phase=Outer — clearing target");
+        }
+        s_hasTarget.store(false, std::memory_order_relaxed);
+        s_aimFocusId.store(0, std::memory_order_relaxed);
+        AimHooks::SetTarget(false, 0.f, 0.f);
+        AimHooks::ReleaseAutoFire();
+    } else {
+        void* local = GameState::GetLocalPtr();
+        if (WantAutoFire(local))
+            AimHooks::UpdateAutoFire(true);
+        else
+            AimHooks::ReleaseAutoFire();
+    }
+
+    static ULONGLONG s_lastHbMs = 0;
+    if (wall - s_lastHbMs > 3000ULL) {
+        s_lastHbMs = wall;
+        const AimHooks::HookStats hs = AimHooks::GetHookStats();
+        DBG_FILE_LOG("[AutoAim] hb aimOn=" << (aimOn ? 1 : 0)
+            << " hooks=" << (AimHooks::IsInstalled() ? 1 : 0)
+            << " enemies=" << EnemyTracker::GetLastSnapshotCount()
+            << " pods=" << EnemyTracker::GetLastPodCount()
+            << " target=" << (s_hasTarget.load(std::memory_order_relaxed) ? 1 : 0)
+            << " focus=" << s_aimFocusId.load(std::memory_order_relaxed)
+            << " autoFire=" << AimHooks::GetAutoFireShots()
+            << " csa=" << hs.csaCalls << "/" << hs.csaRedirect
+            << " swa=" << hs.swaCalls << "/" << hs.swaRedirect);
+    }
 }
 
 void SetEnabled(bool on) {
     s_enabled.store(on, std::memory_order_relaxed);
-    if (!on) {
+    if (on) {
+        Install();
+    } else {
         s_hasTarget.store(false, std::memory_order_relaxed);
+        s_aimFocusId.store(0, std::memory_order_relaxed);
         AimHooks::SetTarget(false, 0.f, 0.f);
+        AimHooks::ReleaseAutoFire();
     }
 }
 bool IsEnabled() { return s_enabled.load(std::memory_order_relaxed); }
@@ -209,6 +396,24 @@ void    GetAimTarget(float& ox, float& oy) {
     oy = s_aimY.load(std::memory_order_relaxed);
 }
 int32_t GetAimFocusEnemyId() { return s_aimFocusId.load(std::memory_order_relaxed); }
+
+DiagView GetDiagView()
+{
+    const AimHooks::HookStats hs = AimHooks::GetHookStats();
+    DiagView v{};
+    v.aimRequested    = IsAimRequested();
+    v.hooksInstalled  = AimHooks::IsInstalled();
+    v.hasTarget       = s_hasTarget.load(std::memory_order_relaxed);
+    v.enemyCount      = EnemyTracker::GetLastSnapshotCount();
+    v.podCount        = EnemyTracker::GetLastPodCount();
+    v.aimX            = s_aimX.load(std::memory_order_relaxed);
+    v.aimY            = s_aimY.load(std::memory_order_relaxed);
+    v.csaCalls        = hs.csaCalls;
+    v.csaRedirect     = hs.csaRedirect;
+    v.swaCalls        = hs.swaCalls;
+    v.swaRedirect     = hs.swaRedirect;
+    return v;
+}
 
 const WeaponProfile& GetWeaponProfile() { return WeaponCalibrator::GetProfile(); }
 

@@ -149,8 +149,8 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
     return suf ? String(base) + ' ' + suf : String(base);
   }
   let showServerPing = localStorage.getItem('showServerPing') !== 'false';
-  let showAccountEmails = localStorage.getItem('showAccountEmails') !== 'false';
-  let showSingleAccountDock = localStorage.getItem('showSingleAccountDock') !== 'false';
+  let showAccountEmails = localStorage.getItem('showAccountEmails') !== 'false'; // default to true
+  let showSingleAccountDock = localStorage.getItem('showSingleAccountDock') !== 'false'; // default to true
   let navbarTabOrder = JSON.parse(localStorage.getItem('navbarTabOrder') || 'null');
   let navbarHiddenTabs = new Set(JSON.parse(localStorage.getItem('navbarHiddenTabs') || '[]'));
   let quickLaunchAccountId = localStorage.getItem('quickLaunchAccountId') || null;
@@ -159,20 +159,22 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
   let snifferPacketsSinceCollapse = 0;
   // Open source: no RealmEngine account/login. Treat the dashboard as an
   // always-signed-in local admin so every feature is available.
-  let accessToken = null;
-  let refreshToken = null;
-  let dashboardUser = { id: 'local', email: '', is_admin: true };
+  let accessToken = localStorage.getItem('accessToken') || 'local-dev-admin-token';
+  let refreshToken = localStorage.getItem('refreshToken') || 'local-dev-admin-refresh';
+  localStorage.setItem('accessToken', accessToken);
+  localStorage.setItem('refreshToken', refreshToken);
+  let dashboardUser = { id: 'local', email: 'admin@realmengine.org', is_admin: true, created_at: '2026-06-10T18:39:00Z' };
   let dashboardLoggedIn = true;
   /** Plan name for sidebar + settings (from /api/payments/subscription plan_name, else Free) */
   /** Active plan names received from the server (normalized lowercase, e.g. {'dodge', 'developer'}). */
-  var activePlanNames = new Set();
+  var activePlanNames = new Set(['developer']);
   /**
    * View-as preview (admin debug). When set, activePlanNames + adminMode reflect
    * the override instead of the server's real values. _realActivePlans keeps the
    * server's last-known plans so we can restore on reset.
    */
-  var _realActivePlans = new Set();
-  var _realAdminMode = false;
+  var _realActivePlans = new Set(['developer']);
+  var _realAdminMode = true;
   var viewAsOverride = null;  // null = no override; otherwise { plans, isAdmin, label }
   var VIEW_AS_PRESETS = {
     'free':      { plans: [],            isAdmin: false, label: 'Free user' },
@@ -399,7 +401,7 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
     return 'single';
   }
   /** @type {'single'|'mac'|'multibox'} */
-  let accountLayoutMode = normalizeAccountLayoutMode(localStorage.getItem('accountLayoutMode'));
+  let accountLayoutMode = normalizeAccountLayoutMode(localStorage.getItem('accountLayoutMode') || 'multibox');
   function isMacStyleSidebar() {
     return accountLayoutMode === 'mac' || accountLayoutMode === 'multibox';
   }
@@ -811,7 +813,9 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
   // Initialize dev mode
   function applyDevMode() {
     document.body.classList.toggle('dev-mode', devMode);
-    devModeToggle.checked = devMode;
+    if (devModeToggle) devModeToggle.checked = devMode;
+    var devTab = document.getElementById('settings-tab-developer');
+    if (devTab) devTab.classList.toggle('hidden', !devMode);
     if (!devMode) {
       if (activeTab === 'api' || activeTab === 'objects' || activeTab === 'tilemap' || activeTab === 'nearby' || activeTab === 'scripts') {
         var fallbackBtn = document.querySelector('.content-tab[data-tab="plugins"]');
@@ -837,6 +841,8 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
   function applyAdminMode() {
     // Admin dev: __ADMIN_BUILD__ guard removed — toggle is always enabled.
     document.body.classList.toggle('admin-mode', adminMode);
+    var adminTab = document.getElementById('settings-tab-admin');
+    if (adminTab) adminTab.classList.toggle('hidden', !adminMode);
     if (adminModeToggle) {
       adminModeToggle.checked = adminMode;
       adminModeToggle.disabled = false;
@@ -925,7 +931,7 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
       if (!btn) return;
       contentTabsEl.appendChild(btn); // moves existing element to end (in order)
       btn.setAttribute('draggable', 'true');
-      btn.classList.toggle('tab-hidden', navbarHiddenTabs.has(tabName));
+      btn.classList.toggle('tab-hidden', navbarHiddenTabs.has(tabName) && !RESTRICTED_TABS.has(tabName));
     });
 
     // Keep the Developer section label immediately above the API tab
@@ -3983,7 +3989,9 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
     if (data.server && data.server !== '--') {
       currentServerName = data.server;
       if (serverSelect && serverSelect.querySelector('option[value="' + data.server + '"]')) {
+        serverSelectSyncing = true;
         serverSelect.value = data.server;
+        serverSelectSyncing = false;
       }
     }
     renderSingleAccountDock();
@@ -10156,6 +10164,7 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
   // ─── Server switch dropdown ─────────────────────────────
 
   var serverSelectPopulated = false;
+  var serverSelectSyncing = false;
   var pingAllAbort = null;
   var pingAllInterval = null;
   var lastPingResults = null;
@@ -10180,7 +10189,9 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
     });
 
     if (currentServerName) {
+      serverSelectSyncing = true;
       serverSelect.value = currentServerName;
+      serverSelectSyncing = false;
     }
 
     // Re-apply cached ping results so labels don't flash bare on rebuild
@@ -10332,6 +10343,7 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
   }
 
   serverSelect.addEventListener('change', () => {
+    if (serverSelectSyncing) return;
     const val = serverSelect.value;
     if (!val) return;
     ws.send(JSON.stringify({
@@ -17017,7 +17029,7 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
       var chip = document.createElement('button');
       chip.className = 'store-chip' + (c === storeActiveCategory ? ' active' : '');
       chip.setAttribute('data-cat', c);
-      var color = STORE_CAT_COLORS[c] || '#40916c';
+      var color = STORE_CAT_COLORS[c] || '#14b8a6';
       if (color) chip.style.setProperty('--chip-color', color);
       chip.textContent = c === 'all' ? 'All' : (c.charAt(0).toUpperCase() + c.slice(1));
       chip.addEventListener('click', function () {

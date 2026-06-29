@@ -1,5 +1,6 @@
 import type { PluginContext } from '../src/plugins/PluginContext.js';
 import { sendDllFeature } from '../src/bridge/DllFeatureBus.js';
+import { createCombatMapArmer, mapNameFromPacket } from '../src/plugins/combat-map-arm.js';
 
 /**
  * Auto Follow plugin.
@@ -18,10 +19,15 @@ export function register(ctx: PluginContext) {
 
   let followName = '';
 
-  function pushState(): void {
-    const active = ctx.enabled && followName.length > 0;
+  function pushState(activeInRealm = false) {
+    const active = activeInRealm && ctx.enabled && followName.length > 0;
     sendDllFeature('followEntityName', followName);
     sendDllFeature('followEntityActive', active);
+  }
+
+  function syncMenuSafe() {
+    sendDllFeature('followEntityName', followName);
+    sendDllFeature('followEntityActive', false);
   }
 
   ctx.registerSetting('followName', {
@@ -31,18 +37,39 @@ export function register(ctx: PluginContext) {
   }, (val: string) => {
     followName = (val || '').trim();
     ctx.log(followName ? `Follow target set: "${followName}"` : 'Follow disabled');
-    pushState();
+    pushState(false);
   });
 
-  ctx.onEnabledChange(() => pushState());
+  const combatArm = createCombatMapArmer({
+    arm: () => pushState(true),
+    disarm: () => syncMenuSafe(),
+    settleMs: 3000,
+    requireWirePlayer: true,
+  });
 
-  // Re-assert state whenever the DLL (re)connects so a fresh session picks up
-  // the current target. The bridge also replays feature state on reconnect,
-  // but sending here keeps the dashboard and DLL in sync deterministically.
-  ctx.on('clientConnected', () => pushState());
+  ctx.onEnabledChange((enabled) => {
+    combatArm.onEnabledChange(enabled);
+  });
+
+  ctx.registerDllResync(() => syncMenuSafe());
+
   ctx.on('clientDisconnected', () => {
-    // Session is ending; make sure follow doesn't resume unexpectedly.
     sendDllFeature('followEntityActive', false);
+    combatArm.onDisconnect();
+  });
+
+  ctx.hookPacket('NEWTICK', (client, packet) => {
+    if (!packet.isDefined) return;
+    combatArm.onNewTick(client, ctx.enabled);
+  });
+
+  ctx.hookPacket('MAPINFO', (_client, packet) => {
+    try {
+      if (!packet.isDefined) return;
+      combatArm.onMapInfo(mapNameFromPacket(packet), ctx.enabled);
+    } catch (err) {
+      ctx.log('MAPINFO hook error: ' + (err as Error).message);
+    }
   });
 
   ctx.registerCleanup(() => {

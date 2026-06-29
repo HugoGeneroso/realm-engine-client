@@ -653,6 +653,15 @@ static int      g_walkCellX = 0, g_walkCellY = 0;
 static uint64_t g_walkMs    = 0;
 static constexpr uint64_t kWalkRefreshMs = 500;  // safety re-probe (doors/destructibles)
 
+static bool SafeIsWalkBlocked(float wx, float wy)
+{
+    __try {
+        return TestTAB::IsWalkPositionBlocked(wx, wy);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
 static void RefreshWalkabilityCache(float px, float py)
 {
     const int cellX = static_cast<int>(std::floor(px / kCell));
@@ -671,7 +680,7 @@ static void RefreshWalkabilityCache(float px, float py)
         for (int gy = 0; gy < kSide; ++gy) {
             const float wx = g_originX + (gx + 0.5f) * kCell;
             const float wy = g_originY + (gy + 0.5f) * kCell;
-            const uint8_t b = TestTAB::IsWalkPositionBlocked(wx, wy) ? 1 : 0;
+            const uint8_t b = SafeIsWalkBlocked(wx, wy) ? 1 : 0;
             g_walkBlocked[gx][gy] = b;
             any |= (b != 0);
         }
@@ -1498,7 +1507,9 @@ static bool CcdStepUnsafe(float px, float py, float tx, float ty,
 void SetEnabled(bool en)
 {
     g_enabled = en;
-    if (!en) {
+    if (en) {
+        ProjectileTracking::Install();
+    } else {
         ProjectileTracking::ClearHazardSpawnCallback();
         g_newProjSinceRebuild.store(false, std::memory_order_relaxed);
     }
@@ -1509,6 +1520,7 @@ void OnEnter()
     g_havePlan   = false;
     g_frameCount = 0;
     g_newProjSinceRebuild.store(false, std::memory_order_relaxed);
+    ProjectileTracking::Install();
     ProjectileTracking::RegisterHazardSpawnCallback(OnHazardSpawn, nullptr);
 }
 

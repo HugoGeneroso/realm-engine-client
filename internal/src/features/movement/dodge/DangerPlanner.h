@@ -24,6 +24,9 @@ namespace DangerPlanner {
 
 // Install the AppEngineManager::Update MinHook. No-op if already installed.
 void TryInstall();
+// Defer TryInstall for several seconds after dodge mode swap (portal load / first shots).
+void RequestInstall();
+void TickDeferredInstall();
 void Uninstall();
 
 // Authoritative move entry point — routes through the game's native

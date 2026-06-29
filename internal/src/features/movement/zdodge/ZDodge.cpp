@@ -158,21 +158,18 @@ void ApplyDamageThreshold(SensorSnapshot& sensors, int32_t maxHp, float damageTh
 
 void SetEnabled(bool enabled)
 {
-    if (enabled) ProjectileTracking::Install();
     g_enabled.store(enabled, std::memory_order_relaxed);
-    if (!enabled) {
+    if (enabled) {
+        ProjectileTracking::RequestDeferredInstall();
+    } else {
         ResetCommit();
-        auto snapshot = std::make_unique<DebugSnapshot>();
-        PublishDebug(*snapshot);
     }
 }
 bool IsEnabled() { return g_enabled.load(std::memory_order_relaxed); }
 void OnEnter()
 {
-    ProjectileTracking::Install();
+    ProjectileTracking::RequestDeferredInstall();
     ResetCommit();
-    auto snapshot = std::make_unique<DebugSnapshot>();
-    PublishDebug(*snapshot);
 }
 
 void Tick(void* player, float px, float py, float dt)

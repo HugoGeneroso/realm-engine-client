@@ -3,6 +3,7 @@ import { join } from 'path';
 import type { Proxy } from '../proxy/Proxy.js';
 import type { ClientConnection } from '../proxy/ClientConnection.js';
 import { Logger } from '../util/Logger.js';
+import { getServerDirectory } from '../services/ServerDirectory.js';
 
 /** Simple IPv4 validator for /con <ip>. */
 const IPV4_REGEX = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
@@ -60,16 +61,24 @@ export function attachCoreCommands(proxy: Proxy, dataDir: string, bakedServers?:
     client.sendToClient(textPacket);
   }
 
+  function resolveHost(serverName: string, fallback?: string): string {
+    return getServerDirectory().getHost(serverName) ?? fallback ?? serverName;
+  }
+
   function switchServer(client: ClientConnection, serverName: string, ip: string): void {
     if (!client.state) {
       sendNotification(client, 'Proxy', 'No connection state — cannot switch.');
       return;
     }
-    Logger.log('CoreCommands', `Switching to ${serverName} (${ip})...`);
+    const host = resolveHost(serverName, ip);
+    Logger.log('CoreCommands', `Switching to ${serverName} (${host})...`);
     sendNotification(client, 'Proxy', `Connecting to ${serverName}...`);
-    client.state.conTargetAddress = ip;
+    client.state.conTargetAddress = host;
     client.state.conTargetPort = 2050;
     client.state.conRealKey = Buffer.alloc(0);
+    client.state.conRealGameId = -2;
+    client.state.conRealKeyTime = -1;
+
     const reconnect = proxy.packetFactory.createByName('RECONNECT');
     reconnect.data = {
       name: serverName,
@@ -94,7 +103,8 @@ export function attachCoreCommands(proxy: Proxy, dataDir: string, bakedServers?:
   });
 
   proxy.hookCommand('con', (client, _cmd, args) => {
-    const serverNames = Object.keys(servers);
+    const liveServers = getServerDirectory().getAll();
+    const serverNames = Object.keys(liveServers).length > 0 ? Object.keys(liveServers) : Object.keys(servers);
     if (serverNames.length === 0) {
       sendNotification(client, 'Proxy', 'No servers loaded.');
       return;
@@ -119,9 +129,10 @@ export function attachCoreCommands(proxy: Proxy, dataDir: string, bakedServers?:
     }
 
     const query = raw.toLowerCase();
+    const liveByName = liveServers;
     const byAbbr = abbrToName.get(query);
     if (byAbbr) {
-      switchServer(client, byAbbr, servers[byAbbr]);
+      switchServer(client, byAbbr, liveByName[byAbbr] ?? servers[byAbbr] ?? byAbbr);
       return;
     }
     const byPrefix = serverNames.filter(n => n.toLowerCase().startsWith(query));
@@ -132,12 +143,12 @@ export function attachCoreCommands(proxy: Proxy, dataDir: string, bakedServers?:
     if (byPrefix.length > 1) {
       const exact = byPrefix.find(n => n.toLowerCase() === query);
       if (exact) {
-        switchServer(client, exact, servers[exact]);
+        switchServer(client, exact, liveByName[exact] ?? servers[exact] ?? exact);
         return;
       }
       sendNotification(client, 'Proxy', `Ambiguous: ${byPrefix.join(', ')}`);
       return;
     }
-    switchServer(client, byPrefix[0], servers[byPrefix[0]]);
+    switchServer(client, byPrefix[0], liveByName[byPrefix[0]] ?? servers[byPrefix[0]] ?? byPrefix[0]);
   });
 }

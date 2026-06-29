@@ -162,6 +162,8 @@ export class InternalBridge extends EventEmitter {
 
   /** Latest value per feature key — replayed in full on every DLL (re)connect. */
   private lastSentFeatures = new Map<string, DllMessage>();
+  private replayTimer: ReturnType<typeof setTimeout> | null = null;
+  private replayQueue: DllMessage[] = [];
 
   private loggedFirstPipeData = false;
   private warnedNonWindowsPipe = false;
@@ -281,12 +283,12 @@ export class InternalBridge extends EventEmitter {
     this.writeMessage(JSON.stringify(signed));
   }
 
-  /** Send a feature toggle. Always updates the last-known state for replay on reconnect. */
+  /** Send a feature toggle. Cached for reconnect replay only while the pipe is authenticated. */
   setFeature(key: string, value: boolean | number | string): void {
     const valueType: 'b' | 'n' | 's'
       = typeof value === 'boolean' ? 'b' : (typeof value === 'number' ? 'n' : 's');
     const msg: DllMessage = { type: 'setFeature', key, valueType, value };
-    if (key !== 'internalUnloadDll') {
+    if (this.authenticated && key !== 'internalUnloadDll') {
       this.lastSentFeatures.set(key, { ...msg });
     }
     this.send(msg);
@@ -424,6 +426,11 @@ export class InternalBridge extends EventEmitter {
     this.nextClientSeq = 1n;
     this.lastDllSeq = 0n;
     this.missCount = 0;
+    if (this.replayTimer) {
+      clearTimeout(this.replayTimer);
+      this.replayTimer = null;
+    }
+    this.replayQueue = [];
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
@@ -556,22 +563,31 @@ export class InternalBridge extends EventEmitter {
     this.missCount = 0;
 
     Logger.log('InternalBridge', `Authenticated with DLL (bridgeUserId=${this.bridgeAuthUserId()})`);
-    this.emit('authenticated');
     this.replayAllFeatureState();
+    this.emit('authenticated');
     this.startHeartbeat();
   }
 
-  /** Replay all known feature states to the DLL on every (re)connect. */
+  /** Replay cached feature state one message at a time (~30ms) to avoid Unity crashes. */
   private replayAllFeatureState(): void {
     if (!this.socket || !this.authenticated || !this.sessionKey) return;
-    for (const msg of this.lastSentFeatures.values()) {
-      const signed = this.signOutgoingMessage(msg);
-      if (!signed) {
-        Logger.warn('InternalBridge', `Skipped feature replay for key: ${msg.key}`);
-        continue;
-      }
-      this.writeMessage(JSON.stringify(signed));
+    if (this.replayTimer) {
+      clearTimeout(this.replayTimer);
+      this.replayTimer = null;
     }
+    this.replayQueue = [...this.lastSentFeatures.values()];
+    const step = () => {
+      const msg = this.replayQueue.shift();
+      if (!msg) {
+        this.replayTimer = null;
+        return;
+      }
+      const signed = this.signOutgoingMessage(msg);
+      if (signed) this.writeMessage(JSON.stringify(signed));
+      else Logger.warn('InternalBridge', `Skipped feature replay for key: ${msg.key}`);
+      this.replayTimer = setTimeout(step, 30);
+    };
+    step();
   }
 
   private handleHeartbeat(msg: DllMessage): void {

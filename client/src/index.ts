@@ -63,12 +63,14 @@ import { Logger } from './util/Logger.js';
 import { ensureRotmgMetadataXml } from './util/ensureRotmgMetadataXml.js';
 import { ensureSdkDeployed } from './util/ensureSdkDeployed.js';
 import { getBakedPacketDefinitions, getBakedServers, getBakedStatTypes } from './config/BakedData.js';
+import { initServerDirectory, getServerDirectory } from './services/ServerDirectory.js';
 import {
   readMergedClientConfigRaw,
   getClientConfigWritePath,
   getUserClientConfigPath,
   truthyConfigFlag,
 } from './util/clientConfigStore.js';
+import { startVersionDllHotReload } from './util/versionDllHotReload.js';
 
 const IS_PROD = process.env.REALM_ENGINE_PROD === '1';
 // In packaged builds, main.cjs passes REALM_ENGINE_ROOT = process.resourcesPath so
@@ -278,9 +280,33 @@ async function main() {
   );
 
   // 2. Create proxy
-  const proxy = new Proxy(packetFactory);
-
   const dataDir = resolve(ROOT, 'data');
+  const knownServers: Record<string, string> = { ...(getBakedServers() ?? {}) };
+  if (Object.keys(knownServers).length === 0) {
+    try {
+      Object.assign(knownServers, JSON.parse(readFileSync(join(dataDir, 'servers.json'), 'utf8')));
+    } catch {
+      // attachCoreCommands loads its own fallback
+    }
+  }
+  const serverDirectory = initServerDirectory(knownServers);
+  serverDirectory.loadFromFile(join(dataDir, 'servers.json'));
+  const proxy = new Proxy(packetFactory, { serverDirectory });
+  proxy.cleanStaleTargetFiles();
+
+  let serversRefreshedFromHello = false;
+  proxy.hookPacket('HELLO', (client, packet) => {
+    const token = packet.data.accessToken as string | undefined;
+    if (serversRefreshedFromHello || !token) return;
+    serversRefreshedFromHello = true;
+    void serverDirectory.refreshFromApi(token)
+      .then((count) => {
+        if (count > 0) serverDirectory.saveToFile(join(dataDir, 'servers.json'));
+      })
+      .catch((err) => {
+        Logger.warn('Main', `Server list API refresh failed: ${(err as Error).message}`);
+      });
+  }, undefined, false);
 
   // 3. Load game data (objects.xml for projectile definitions, tiles.xml for tile damage)
   const objectsPath = resolve(ROOT, 'data', 'objects.xml');
@@ -313,7 +339,7 @@ async function main() {
   const reconnectHandler = new ReconnectHandler();
   reconnectHandler.attach(proxy);
 
-  attachCoreCommands(proxy, dataDir, getBakedServers());
+  attachCoreCommands(proxy, dataDir, getServerDirectory().getAll());
 
   if (Logger.isPacketDebugEnabled()) {
     proxy.on('serverPacket', (_client: any, packet: any) => {
@@ -381,6 +407,7 @@ async function main() {
     const publicDir = resolve(ROOT, 'src', 'dashboard', 'public');
     // Latest's DevServer derives configPath/ROOT internally from publicDir.
     devServer = new DevServer(inspector, pluginManager, publicDir, worldState, gameData);
+    pluginManager.onSettingsChanged(() => devServer?.broadcastPluginState());
     devServer.setDetectedGamePath(hooker.gameDirectory);
     devServer.setBridgeClientRef(bridgeClientRef);
     devServer.attachProxy(proxy);
@@ -425,10 +452,7 @@ async function main() {
         else Logger.log('Metadata', message);
       },
     }),
-    pluginManager.loadAll().then(() => {
-      devServer?.tryAutoLoadDefaultPluginConfig();
-      return pluginManager.startWatching();
-    }).then(() => {
+    pluginManager.loadAll().then(() => pluginManager.startWatching()).then(() => {
       // Broadcast plugin state to any dashboard clients that connected before plugins finished loading
       devServer?.broadcastPluginState();
     }),
@@ -460,15 +484,32 @@ async function main() {
   setDllFeatureSender((key, value) => internalBridge.setFeature(key, value));
   // #region agent log
   // #endregion
+  internalBridge.on('authenticated', () => {
+    pluginManager.resyncAllDllPlugins();
+  });
   // Feed the DLL's authoritative memory defense into StateManager so it can
   // self-check the wire defense model on each character load (DefenseCheck log).
   stateManager.setDllDefenseSource(() => internalBridge.getDllDefense());
   if (devServer) {
     devServer.setInternalBridge(internalBridge);
   }
+  // Dev: auto-deploy version.dll when MSBuild writes assets/version.dll, then
+  // kill + relaunch Exalt so you don't restart Electron manually each build.
+  if (devMode && hooker.gameDirectory && process.env.REALM_ENGINE_SKIP_VERSION_DLL_DEPLOY !== '1') {
+    const assetsDll = resolve(assetsDir, 'version.dll');
+    const gameDll = resolve(hooker.gameDirectory, 'version.dll');
+    startVersionDllHotReload({
+      assetsDll,
+      gameDll,
+      relaunchGame: () => devServer?.hotRelaunchGameAfterDllUpdate() ?? { ok: false, error: 'no dashboard' },
+      onStatus: (msg) => devServer?.broadcastDllHotReload(msg.status, msg.detail),
+    });
+  }
   // Start the pipe server — the injected DLL connects to us.
   // No reconnect hammering; server just listens until DLL injects.
   internalBridge.listen();
+  devServer?.tryAutoLoadDefaultPluginConfig();
+  pluginManager.resyncAllDllPlugins();
   // Forward DLL state/player messages to any listeners
   internalBridge.on('message', (msg: any) => {
     devServer?.broadcastDllMessage(msg);

@@ -122,6 +122,8 @@ export function register(ctx: PluginContext) {
     client.state.conTargetAddress = ip;
     client.state.conTargetPort = port;
     client.state.conRealKey = Buffer.alloc(0);
+    client.state.conRealGameId = gameId;
+    client.state.conRealKeyTime = -1;
 
     // Inject RECONNECT to the client
     const reconnect = ctx.createPacket('RECONNECT');

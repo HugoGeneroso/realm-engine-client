@@ -149,6 +149,7 @@ export class PluginManager {
   };
   private dashboardLogListeners = new Set<(pluginName: string, message: string) => void>();
   private broadcastDataListeners = new Set<(pluginId: string, type: string, data: any) => void>();
+  private settingsChangedListener: (() => void) | null = null;
 
   constructor(
     private proxy: Proxy,
@@ -222,6 +223,21 @@ export class PluginManager {
     plugin.context.enabled = enabled;
     sendDllFeature('showPluginFloatingText', `${plugin.name}: ${enabled ? 'Enabled' : 'Disabled'}`);
     return { ok: true };
+  }
+
+  /** Push all enabled bundled plugin state to the DLL (after bridge auth or config load). */
+  private _dllResyncTimer: ReturnType<typeof setTimeout> | null = null;
+
+  resyncAllDllPlugins(): void {
+    if (this._dllResyncTimer) clearTimeout(this._dllResyncTimer);
+    this._dllResyncTimer = setTimeout(() => {
+      this._dllResyncTimer = null;
+      for (const plugin of this.loadedPlugins.values()) {
+        if (plugin.source !== 'bundled') continue;
+        if (!(plugin.context instanceof PluginContext)) continue;
+        plugin.context.resyncDllState();
+      }
+    }, 250);
   }
 
   togglePluginByHotkey(pluginId: string): { ok: boolean; enabled?: boolean; reason?: string; requiredPlan?: string } {
@@ -308,6 +324,11 @@ export class PluginManager {
   onBroadcastData(listener: (pluginId: string, type: string, data: any) => void): () => void {
     this.broadcastDataListeners.add(listener);
     return () => this.broadcastDataListeners.delete(listener);
+  }
+
+  /** Subscribe to plugin setting metadata changes (dashboard refresh). */
+  onSettingsChanged(listener: () => void): void {
+    this.settingsChangedListener = listener;
   }
 
   /** Update a plugin setting. */
@@ -481,6 +502,9 @@ export class PluginManager {
           for (const listener of this.broadcastDataListeners) {
             try { listener(pluginId, type, data); } catch {}
           }
+        };
+        context.onSettingsChanged = () => {
+          try { this.settingsChangedListener?.(); } catch {}
         };
       }
 

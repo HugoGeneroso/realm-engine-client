@@ -71,13 +71,13 @@ Result Select(const Config& cfg,
               float mouseX,  float mouseY,
               const WeaponProfile& weapon)
 {
-    const std::vector<EnemyTracker::Entry>& snap = EnemyTracker::GetSnapshot();
+    const std::vector<EnemyTracker::Entry> snap = EnemyTracker::SnapshotCopy();
 
     // ── Locked mode: bypass all tier logic ──────────────────────────────────
     if (cfg.mode == Mode::Locked && cfg.lockedEnemyId >= 0) {
         for (const EnemyTracker::Entry& e : snap) {
             if (e.id != cfg.lockedEnemyId) continue;
-            if (cfg.ignoreWalls && !e.hasHealthBar) break;
+            if (!cfg.ignoreWalls && !e.hasHealthBar) break;
             if (e.isInvulnerable && !cfg.shootInvulnerable) break;
 
             Result r;
@@ -109,10 +109,13 @@ Result Select(const Config& cfg,
 
     const float weaponRange = (weapon.rangeTiles > 2.f) ? weapon.rangeTiles : 15.f;
     float maxRange = weaponRange + cfg.rangeLeadBias;
+    if (maxRange < 15.f) maxRange = 15.f;
     if (useMouseRef && cfg.mouseBoundingEnabled && cfg.mouseBoundingRange > 0.f
         && cfg.mouseBoundingRange < maxRange)
         maxRange = cfg.mouseBoundingRange;
-    const float maxRangeSq = maxRange * maxRange;
+    // Until WeaponCalibrator resolves range from a real shot, do not cap targeting —
+    // default 15 tiles rejects every wire-fed enemy when memory player pos is stale.
+    float maxRangeSq = weapon.isResolved ? (maxRange * maxRange) : 1e12f;
 
     // ── Four-tier accumulation ───────────────────────────────────────────────
     TierState quest, normal, fallback, invuln;
@@ -122,8 +125,8 @@ Result Select(const Config& cfg,
         for (int i = 0; i < cfg.skipObjCount; ++i)
             if (e.objType == cfg.skipObjTypes[i]) goto next_entry;
 
-        // Soft filters
-        if (cfg.ignoreWalls && !e.hasHealthBar) goto next_entry;
+        // Soft filters — ignoreWalls allows targeting no-HP-bar / wall entities.
+        if (!cfg.ignoreWalls && !e.hasHealthBar) goto next_entry;
         if (e.isInvulnerable && !cfg.shootInvulnerable) goto next_entry;
 
         {

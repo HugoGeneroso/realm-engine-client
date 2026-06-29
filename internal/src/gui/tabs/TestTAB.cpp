@@ -6,7 +6,9 @@
 #include "RolloutDodge.h"
 #include "ZDodge.h"
 #include "ZDodgeTarget.h"
+#include "RePP.h"
 #include "DbgFileLog.h"
+#include "CrashTrace.h"
 #include <windows.h>
 
 using TestTAB::DodgeMode;
@@ -22,6 +24,7 @@ using TestTAB::DodgeMode;
 #include "DirectX.h"
 #include "ProjectileTracking.h"
 #include "AutoAim.h"
+#include "AimHooks.h"
 #include "BagLooter.h"
 #include "RuntimeOffsets.h"
 #include "GameState.h"
@@ -119,11 +122,46 @@ static inline float ClampDodgeLookaheadMs(float v)
 
 namespace {
 
+// MSVC: __try/__except must not share a function with C++ locals that unwind.
+static bool SafeXDodgeSetEnabled(bool on)
+{
+    __try { XDodge::SetEnabled(on); return true; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+static bool SafeRolloutDodgeSetEnabled(bool on)
+{
+    __try { RolloutDodge::SetEnabled(on); return true; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+static bool SafeZDodgeSetEnabled(bool on)
+{
+    __try { ZDodge::SetEnabled(on); return true; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+static bool SafeRePPSetEnabled(bool on)
+{
+    __try { RePP::SetEnabled(on); return true; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
 // ApplyDodgeModeWithEnter — single entry point used by the dashboard/IpcBridge
 // and the local UI to transition dodge modes.
 void ApplyDodgeModeWithEnter(DodgeMode nextMode)
 {
     static DodgeMode s_prevDodgeMode = DodgeMode::Off;
+    if (nextMode == s_prevDodgeMode) {
+        DBG_FILE_LOG("[DodgeSwap] ApplyDodgeModeWithEnter no-op (already mode="
+            << static_cast<int>(nextMode) << ")");
+        return;
+    }
+
+    DBG_FILE_LOG("[DodgeSwap] ApplyDodgeModeWithEnter ENTER nextMode="
+        << static_cast<int>(nextMode));
+    {
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "DodgeSwap:enter mode=%d", static_cast<int>(nextMode));
+        CrashTrace::Push(buf);
+    }
     const bool enabling = nextMode != DodgeMode::Off && s_prevDodgeMode == DodgeMode::Off;
     (void)enabling;
 
@@ -131,16 +169,36 @@ void ApplyDodgeModeWithEnter(DodgeMode nextMode)
     // enabled at a time (mutual exclusivity enforced here).
     const bool rollout = (nextMode == DodgeMode::RolloutGrid
                        || nextMode == DodgeMode::RolloutQuad);
-    XDodge::SetEnabled(nextMode == DodgeMode::XDodge);
-    RolloutDodge::SetEnabled(rollout);
-    ZDodge::SetEnabled(nextMode == DodgeMode::ZDodge);
+    DBG_FILE_LOG("[DodgeSwap] ApplyDodgeMode SetEnabled batch begin");
+    if (!SafeXDodgeSetEnabled(nextMode == DodgeMode::XDodge)) {
+        DBG_FILE_LOG("[DodgeSwap] XDodge::SetEnabled SEH — aborting batch");
+        return;
+    }
+    DBG_FILE_LOG("[DodgeSwap] XDodge::SetEnabled done");
+    if (!SafeRolloutDodgeSetEnabled(rollout)) {
+        DBG_FILE_LOG("[DodgeSwap] RolloutDodge::SetEnabled SEH — aborting batch");
+        return;
+    }
+    DBG_FILE_LOG("[DodgeSwap] RolloutDodge::SetEnabled done");
+    if (!SafeZDodgeSetEnabled(nextMode == DodgeMode::ZDodge)) {
+        DBG_FILE_LOG("[DodgeSwap] ZDodge::SetEnabled SEH — aborting batch");
+        return;
+    }
+    DBG_FILE_LOG("[DodgeSwap] ZDodge::SetEnabled done");
+    if (!SafeRePPSetEnabled(nextMode == DodgeMode::RePP)) {
+        DBG_FILE_LOG("[DodgeSwap] RePP::SetEnabled SEH — aborting batch");
+        return;
+    }
+    DBG_FILE_LOG("[DodgeSwap] RePP::SetEnabled done");
+    DBG_FILE_LOG("[DodgeSwap] ApplyDodgeMode SetEnabled batch done");
 
 
     DBG_FILE_LOG("[DodgeSwap] ApplyDodgeModeWithEnter nextMode=" << static_cast<int>(nextMode)
-        << " (0=Off 1=XDodge 2=RollGrid 3=RollQuad 4=ZDodge)"
+        << " (0=Off 1=XDodge 2=RollGrid 3=RollQuad 4=ZDodge 5=RePP)"
         << " -> enabled{ XDodge=" << XDodge::IsEnabled()
         << " Rollout=" << RolloutDodge::IsEnabled()
-        << " ZDodge=" << ZDodge::IsEnabled() << " }");
+        << " ZDodge=" << ZDodge::IsEnabled()
+        << " RePP=" << RePP::IsEnabled() << " }");
     if (nextMode == DodgeMode::XDodge) {
         XDodge::OnEnter();
         // Install the AppEngineManager::Update detour that drives the dodge Tick.
@@ -150,16 +208,19 @@ void ApplyDodgeModeWithEnter(DodgeMode nextMode)
         // Tick never ran → dodge silently did nothing while other IPC features
         // (autoaim) worked. The detour is gated on XDodge/RolloutDodge
         // IsEnabled(), independent of DangerPlanner steering.
-        DangerPlanner::TryInstall();
+        DangerPlanner::RequestInstall();
     } else if (rollout) {
         // Both RE-Sim modes are the same engine; the mode selects the
         // broad-phase backend (Grid vs Quadtree) for the A/B comparison.
         RolloutDodge::SetBroadPhase(nextMode == DodgeMode::RolloutQuad ? 3 : 2);
         RolloutDodge::OnEnter();
-        DangerPlanner::TryInstall();
+        DangerPlanner::RequestInstall();
     } else if (nextMode == DodgeMode::ZDodge) {
         ZDodge::OnEnter();
-        DangerPlanner::TryInstall();
+        DangerPlanner::RequestInstall();
+    } else if (nextMode == DodgeMode::RePP) {
+        RePP::OnEnter();
+        DangerPlanner::RequestInstall();
     }
 
     // DangerPlanner steering is disabled; the active dodge engine drives moves.
@@ -642,6 +703,9 @@ void TestTAB::Tick(bool menuVisible)
                 ZDodge::RenderDebugOverlay(camX, camY, angleRad, zoom, cx, cy);
                 ZDodge::Target::Render(dl, camX, camY, angleRad, zoom, cx, cy);
             }
+            if (RePP::IsEnabled()) {
+                RePP::RenderDebugOverlay(camX, camY, angleRad, zoom, cx, cy);
+            }
         }
 
         // Locked enemy visualization — red reticle + two rings:
@@ -952,7 +1016,7 @@ void TestTAB::RenderMovementSection()
     ImGui::Indent(8.f);
 
     int modeIdx = static_cast<int>(g_dodgeMode);
-    const char* modeLabels[] = { "Off", "RE-Plus", "RE-Sim (Grid)", "RE-Sim (Quadtree)", "zDodge" };
+    const char* modeLabels[] = { "Off", "RE-Plus", "RE-Sim (Grid)", "RE-Sim (Quadtree)", "zDodge", "RE++" };
     ImGui::SetNextItemWidth(240.f);
     if (ImGui::Combo("Mode##dodgeModeCombo", &modeIdx, modeLabels, IM_ARRAYSIZE(modeLabels))) {
         ApplyDodgeModeWithEnter(static_cast<DodgeMode>(modeIdx));
@@ -970,6 +1034,9 @@ void TestTAB::RenderMovementSection()
     } else if (g_dodgeMode == DodgeMode::ZDodge) {
         ImGui::Spacing();
         ZDodge::RenderSettings();
+    } else if (g_dodgeMode == DodgeMode::RePP) {
+        ImGui::Spacing();
+        RePP::RenderSettings();
     }
 
     ImGui::Unindent(8.f);
@@ -1154,6 +1221,35 @@ void TestTAB::Render()
     }
 
     ImGui::Spacing();
+    ImGui::TextColored(ImVec4(1.f, 0.5f, 0.5f, 1.f), "AUTOFIRE DIAGNOSTICS");
+    {
+        int activeIdx = AimHooks::GetActiveAutoFireCandidateIdx();
+        for (int i = 0; i < AimHooks::kNumCandidates; ++i) {
+            const char* name = AimHooks::GetAutoFireCandidateName(i);
+            bool resolved = AimHooks::IsAutoFireCandidateResolved(i);
+            ImGui::PushID(i);
+            bool selected = (activeIdx == i);
+            if (ImGui::RadioButton(name ? name : "Unknown", selected)) {
+                AimHooks::SetActiveAutoFireCandidateIdx(i);
+            }
+            ImGui::SameLine();
+            ImGui::Text(resolved ? "[Resolved]" : "[Stale]");
+            ImGui::SameLine(320.f);
+            if (ImGui::Button("Test ON")) {
+                AimHooks::TestCallAutoFireCandidate(i, true);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Test OFF")) {
+                AimHooks::TestCallAutoFireCandidate(i, false);
+            }
+            ImGui::PopID();
+        }
+        if (ImGui::Button("Reset Active Candidate")) {
+            AimHooks::SetActiveAutoFireCandidateIdx(-1);
+        }
+    }
+
+    ImGui::Spacing();
     ImGui::Checkbox("HUD: local KJNHLADHEMH + HODJPKFINKF##localskindef", &g_showLocalSkinDefenseHud);
     ImGui::TextDisabled("Live int32s on local player (LKHPPBEGNOM). Shown on-screen every frame when enabled.");
     if (g_showLocalSkinDefenseHud) {
@@ -1177,6 +1273,81 @@ void TestTAB::Render()
     } else {
         s_kjnladInputActivePrev = false;
     }
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    // ── Offset Health (resolution status of every game-version offset) ────────
+    ImGui::TextColored(ImVec4(1.f, 0.75f, 0.2f, 1.f), "OFFSET HEALTH");
+    ImGui::Indent(8.f);
+    {
+        // Live sanity: auto-flag any critical offset reading clear garbage
+        // (e.g. a stale defense/damage offset behind over-estimated damage).
+        if (LocalPlayer::GetPtr())
+            RuntimeOffsets::SanityCheckPlayerStats(LocalPlayer::GetHP(), LocalPlayer::GetMaxHP(), LocalPlayer::GetDefense());
+        {
+            static std::vector<WorldProjectile> s_sanityProjs;
+            s_sanityProjs.clear();
+            ProjectileTracking::CopyActiveForDraw(s_sanityProjs);
+            for (const WorldProjectile& pr : s_sanityProjs)
+                if (pr.valid && pr.damage != 0) { RuntimeOffsets::SanityCheckProjDamage(pr.damage); break; }
+        }
+
+        int nResolved = 0, nFallback = 0, nSuspect = 0, nPending = 0;
+        RuntimeOffsets::GetOffsetSummary(nResolved, nFallback, nSuspect, nPending);
+        ImGui::Text("resolved %d", nResolved);
+        ImGui::SameLine();
+        ImGui::TextColored(nFallback > 0 ? ImVec4(1.f, 0.85f, 0.2f, 1.f) : ImVec4(0.55f, 0.55f, 0.55f, 1.f),
+            "  fallback %d", nFallback);
+        ImGui::SameLine();
+        ImGui::TextColored(nSuspect > 0 ? ImVec4(1.f, 0.35f, 0.35f, 1.f) : ImVec4(0.55f, 0.55f, 0.55f, 1.f),
+            "  suspect %d", nSuspect);
+        ImGui::SameLine();
+        ImGui::TextDisabled("  pending %d", nPending);
+        if (nFallback > 0 || nSuspect > 0)
+            ImGui::TextColored(ImVec4(1.f, 0.45f, 0.2f, 1.f),
+                "STALE OFFSETS after this patch — update RuntimeOffsets (names/values).");
+
+        static bool s_showAllOffsets = false;
+        ImGui::Checkbox("Show all (not just problems)##offhealth", &s_showAllOffsets);
+
+        static RuntimeOffsets::OffsetReportRow s_offRows[256];
+        const int total = RuntimeOffsets::GetOffsetReport(s_offRows, 256);
+        const int shown = (total < 256) ? total : 256;
+        const ImGuiTableFlags tf = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY;
+        if (ImGui::BeginTable("offhealth", 4, tf, ImVec2(-1.f, 220.f))) {
+            ImGui::TableSetupColumn("class::field");
+            ImGui::TableSetupColumn("fallback");
+            ImGui::TableSetupColumn("live");
+            ImGui::TableSetupColumn("status");
+            ImGui::TableHeadersRow();
+            for (int i = 0; i < shown; ++i) {
+                const RuntimeOffsets::OffsetReportRow& r = s_offRows[i];
+                const bool healthy = (r.state == RuntimeOffsets::OffsetState::ResolvedMatch ||
+                                      r.state == RuntimeOffsets::OffsetState::ResolvedShifted ||
+                                      r.state == RuntimeOffsets::OffsetState::Pending);  // pending = transient (first ~5s)
+                if (!s_showAllOffsets && healthy) continue;
+                const char* st = "pending";
+                ImVec4 col(0.55f, 0.55f, 0.55f, 1.f);
+                switch (r.state) {
+                    case RuntimeOffsets::OffsetState::ResolvedMatch:     st = "resolved";        col = ImVec4(0.5f, 0.85f, 0.5f, 1.f); break;
+                    case RuntimeOffsets::OffsetState::ResolvedShifted:   st = "resolved (moved)"; col = ImVec4(0.5f, 0.8f, 0.95f, 1.f); break;
+                    case RuntimeOffsets::OffsetState::FallbackFieldName: st = "STALE (renamed)";  col = ImVec4(1.f, 0.85f, 0.2f, 1.f);  break;
+                    case RuntimeOffsets::OffsetState::FallbackGaveUp:    st = "STALE (no class)"; col = ImVec4(1.f, 0.7f, 0.2f, 1.f);   break;
+                    case RuntimeOffsets::OffsetState::Suspect:          st = "SUSPECT";          col = ImVec4(1.f, 0.35f, 0.35f, 1.f); break;
+                    default:                                            break;
+                }
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn(); ImGui::Text("%s::%s", r.className, r.fieldName);
+                ImGui::TableNextColumn(); ImGui::Text("0x%X", r.fallback);
+                ImGui::TableNextColumn(); ImGui::Text("0x%X", r.value);
+                ImGui::TableNextColumn(); ImGui::TextColored(col, "%s", st);
+            }
+            ImGui::EndTable();
+        }
+    }
+    ImGui::Unindent(8.f);
 
     ImGui::Spacing();
     ImGui::Separator();
@@ -1285,7 +1456,7 @@ namespace TestTAB {
     void      SetDodgeMode(DodgeMode m)
     {
         const int v = static_cast<int>(m);
-        ApplyDodgeModeWithEnter((v >= 0 && v <= static_cast<int>(DodgeMode::ZDodge))
+        ApplyDodgeModeWithEnter((v >= 0 && v <= static_cast<int>(DodgeMode::RePP))
             ? m : DodgeMode::Off);
     }
     // SetDodgeModeWithEnter — IpcBridge calls this to route a dashboard dodge-mode

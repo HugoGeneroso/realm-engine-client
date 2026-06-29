@@ -1,14 +1,18 @@
 import type { PluginContext } from '../src/plugins/PluginContext.js';
 import { sendDllFeature } from '../src/bridge/DllFeatureBus.js';
+import { createCombatMapArmer, mapNameFromPacket } from '../src/plugins/combat-map-arm.js';
+import { installCombatWireEnemies } from '../src/plugins/combat-wire-enemies.js';
+import { installCombatProxyAim } from '../src/plugins/combat-proxy-aim.js';
 
 // Maps the dashboard string value to the C++ TestTAB::DodgeMode enum.
-// Off=0, XDodge=1, RolloutGrid=2, RolloutQuad=3, zDodge=4.
+// Off=0, XDodge=1, RolloutGrid=2, RolloutQuad=3, zDodge=4, RePP=5.
 // XDodge uses A* (goal-directed) with BFS fallback (immediate escape),
 // ported from XRebuild/XDriver decompile. RE-Sim does per-input forward
 // simulation; the two RE-Sim modes differ only in broad-phase backend
 // (grid vs quadtree) so they can be A/B-compared. zDodge is an
-// intent-preserving slide-assist dodge.
-const DODGE_VALUES = ['off', 'xdodge', 'rollout-grid', 'rollout-quad', 'zdodge'] as const;
+// intent-preserving slide-assist dodge. RePP (RE++) is the next-gen
+// reactive dodge.
+const DODGE_VALUES = ['off', 'xdodge', 'rollout-grid', 'rollout-quad', 'zdodge', 're-plus-plus'] as const;
 type ActiveDodgeMode = Exclude<(typeof DODGE_VALUES)[number], 'off'>;
 type SettingConfig = Parameters<PluginContext['registerSetting']>[1];
 type SettingCallback = Parameters<PluginContext['registerSetting']>[2];
@@ -28,9 +32,106 @@ export function register(ctx: PluginContext) {
   ctx.name = 'Auto Dodge';
   ctx.category = 'combat';
 
+  function syncAutoLock() {
+    sendDllFeature('xdodgeAutoLock', autoLockModeToIdx(ctx.getSetting<string>('enemyAutoLock')));
+  }
+
   function flush(forceOff = false) {
     const mode = forceOff ? 0 : modeToIdx(ctx.getSetting<string>('dodgeMode'));
     sendDllFeature('autoDodgeMode', mode);
+    if (!forceOff && mode > 0) syncAutoLock();
+  }
+
+  // ~50 setFeature calls in one burst crash Unity during character load.
+  // Spread them (~25ms apart) and never bulk-sync on proxy connect.
+  let _spreadTimer: ReturnType<typeof setTimeout> | null = null;
+  let _deferredSpread: ReturnType<typeof setTimeout> | null = null;
+
+  function cancelSpreadSync() {
+    if (_spreadTimer) { clearTimeout(_spreadTimer); _spreadTimer = null; }
+    if (_deferredSpread) { clearTimeout(_deferredSpread); _deferredSpread = null; }
+  }
+
+  function collectModeSettings(): Array<{ key: string; value: boolean | number | string }> {
+    const out: Array<{ key: string; value: boolean | number | string }> = [];
+    const push = (key: string, value: boolean | number | string) => out.push({ key, value });
+    push('xdodgeHitScale', ctx.getSetting<number>('xdodgeHitScale'));
+    push('xdodgeRebuildN', ctx.getSetting<number>('xdodgeRebuildN'));
+    push('xdodgePlanStepMs', ctx.getSetting<number>('xdodgePlanStepMs'));
+    push('xdodgeDangerPenalty', ctx.getSetting<number>('xdodgeDangerPenalty'));
+    push('xdodgeStayPenalty', ctx.getSetting<number>('xdodgeStayPenalty'));
+    push('xdodgeFutureSample', ctx.getSetting<string>('xdodgeFutureSample') === 'on' ? 1 : 0);
+    push('xdodgeFutureHorizon', ctx.getSetting<number>('xdodgeFutureHorizon'));
+    push('xdodgeFutureStride', ctx.getSetting<number>('xdodgeFutureStride'));
+    push('dodgeHitScale', ctx.getSetting<number>('dodgeHitScale'));
+    for (const k of ['xdodgeAstar', 'xdodgeWeighting', 'xdodgeSmartGoal', 'xdodgePerpBias', 'xdodgeSpeedMatch', 'xdodgeLockFollow', 'xdodgeWalkCache', 'xdodgeWallAvoid', 'xdodgeArbiter', 'xdodgeBfsBias', 'xdodgeCcd', 'xdodgeCatalog', 'xdodgeLosGoal', 'xdodgeWasdYield', 'xdodgeLateralPref', 'xdodgeGoalSticky', 'xdodgeAvoidEnemies', 'xdodgeGhostHit', 'xdodgeDrawPath'])
+      push(k, ctx.getSetting<string>(k) === 'on' ? 1 : 0);
+    push('xdodgeCcdPad', ctx.getSetting<number>('xdodgeCcdPad'));
+    push('xdodgeAutoLock', autoLockModeToIdx(ctx.getSetting<string>('enemyAutoLock')));
+    push('rolloutHorizonTicks', ctx.getSetting<number>('rolloutHorizonTicks'));
+    push('rolloutSampleStepMs', ctx.getSetting<number>('rolloutSampleStepMs'));
+    push('rolloutHeadings', ctx.getSetting<number>('rolloutHeadings'));
+    push('rolloutHitScale', ctx.getSetting<number>('rolloutHitScale'));
+    push('rolloutIntentWeight', ctx.getSetting<number>('rolloutIntentWeight'));
+    push('rolloutRebuildN', ctx.getSetting<number>('rolloutRebuildN'));
+    for (const k of ['rolloutAvoidEnemies', 'rolloutWasdYield', 'rolloutCommitDwell', 'rolloutDrawPath'])
+      push(k, ctx.getSetting<string>(k) === 'on' ? 1 : 0);
+    push('zdodgeReactWindowMs', ctx.getSetting<number>('zdodgeReactWindowMs'));
+    push('zdodgeMaxMoveTiles', ctx.getSetting<number>('zdodgeMaxMoveTiles'));
+    push('zdodgePlayerRadius', ctx.getSetting<number>('zdodgePlayerRadius'));
+    push('zdodgeProjectileRadiusFallback', ctx.getSetting<number>('zdodgeProjectileRadiusFallback'));
+    push('zdodgeDamageThresholdPct', ctx.getSetting<number>('zdodgeDamageThresholdPct'));
+    for (const k of ['zdodgeDebugOverlay', 'zdodgeCandidateOverlay'])
+      push(k, ctx.getSetting<string>(k) === 'on' ? 1 : 0);
+    push('reppReactWindowMs', ctx.getSetting<number>('reppReactWindowMs'));
+    push('reppMaxMoveTiles', ctx.getSetting<number>('reppMaxMoveTiles'));
+    push('reppHitScale', ctx.getSetting<number>('reppHitScale'));
+    push('reppDangerWeight', ctx.getSetting<number>('reppDangerWeight'));
+    push('reppMode', ctx.getSetting<string>('reppMode') === 'autopilot' ? 1 : 0);
+    push('reppStandOnType', ctx.getSetting<number>('reppStandOnType'));
+    for (const k of ['reppFollowLantern', 'reppAvoidHazards', 'reppDebugOverlay'])
+      push(k, ctx.getSetting<string>(k) === 'on' ? 1 : 0);
+    return out;
+  }
+
+  function spreadSyncModeSettings() {
+    cancelSpreadSync();
+    if (!ctx.enabled) return;
+    const queue = collectModeSettings();
+    const step = () => {
+      const item = queue.shift();
+      if (!item) { _spreadTimer = null; return; }
+      sendDllFeature(item.key, item.value);
+      _spreadTimer = setTimeout(step, 50);
+    };
+    step();
+  }
+
+  function scheduleSpreadSync(delayMs: number) {
+    if (_deferredSpread) clearTimeout(_deferredSpread);
+    _deferredSpread = setTimeout(() => {
+      _deferredSpread = null;
+      try { spreadSyncModeSettings(); }
+      catch (err) { ctx.log('Spread dodge settings sync failed: ' + (err as Error).message); }
+    }, delayMs);
+  }
+
+  function syncOnConnect() {
+    // Stay off in menu/Nexus — enabling zDodge during char select crashes Unity.
+    sendDllFeature('autoDodgeMode', 0);
+    applyDodgeFps(false);
+  }
+
+  function activateDodgeForRealm() {
+    const setting = ctx.getSetting<string>('dodgeMode');
+    let mode = modeToIdx(setting);
+    // Plugin enabled in a realm but dodge mode left on Off — arm default RE-Plus.
+    if (mode === 0) mode = modeToIdx('xdodge');
+    sendDllFeature('autoDodgeMode', mode);
+    syncAutoLock();
+    applyDodgeFps(true);
+    // Sub-settings are spread slowly — mode must land first, well after realm load settles.
+    scheduleSpreadSync(8000);
   }
 
   // `mode` may be a single dodge mode or several — settings shown for the RE-Sim
@@ -60,6 +161,7 @@ export function register(ctx: PluginContext) {
       { label: 'RE-Sim (Grid)', value: 'rollout-grid' },
       { label: 'RE-Sim (Quadtree)', value: 'rollout-quad' },
       { label: 'zDodge', value: 'zdodge' },
+      { label: 'RE++', value: 're-plus-plus' },
     ],
   }, () => flush());
 
@@ -202,6 +304,45 @@ export function register(ctx: PluginContext) {
   registerModeSetting('zdodge', 'zdodgeCandidateOverlay', onOff('[zDodge] Candidate points', 'on'),
     (v: string) => sendDllFeature('zdodgeCandidateOverlay', v === 'on' ? 1 : 0));
 
+  // ── RE++ settings ─────────────────────────────────────────────────────────
+  registerModeSetting('re-plus-plus', 'reppReactWindowMs', {
+    label: '[RE++] React window (ms)',
+    type: 'range', value: 650, min: 100, max: 2500, step: 25,
+  }, (v: number) => sendDllFeature('reppReactWindowMs', v));
+  registerModeSetting('re-plus-plus', 'reppMaxMoveTiles', {
+    label: '[RE++] Max assist distance (tiles)',
+    type: 'range', value: 1, min: 0.2, max: 4, step: 0.05,
+  }, (v: number) => sendDllFeature('reppMaxMoveTiles', v));
+  registerModeSetting('re-plus-plus', 'reppHitScale', {
+    label: '[RE++] Hit scale', advanced: true,
+    type: 'range', value: 1, min: 0.5, max: 2, step: 0.05,
+  }, (v: number) => sendDllFeature('reppHitScale', v));
+  registerModeSetting('re-plus-plus', 'reppDangerWeight', {
+    label: '[RE++] Danger weight',
+    type: 'range', value: 2, min: 0, max: 5, step: 0.1,
+  }, (v: number) => sendDllFeature('reppDangerWeight', v));
+  registerModeSetting('re-plus-plus', 'reppMode', {
+    label: '[RE++] Mode',
+    type: 'select',
+    value: 'assist',
+    options: [
+      { label: 'Assist', value: 'assist' },
+      { label: 'Autopilot', value: 'autopilot' },
+    ],
+  }, (v: string) => sendDllFeature('reppMode', v === 'autopilot' ? 1 : 0));
+  registerModeSetting('re-plus-plus', 'reppFollowLantern',
+    onOff('[RE++][Autopilot] Follow stand-on object (lantern) — perf cost', 'off'),
+    (v: string) => sendDllFeature('reppFollowLantern', v === 'on' ? 1 : 0));
+  registerModeSetting('re-plus-plus', 'reppStandOnType', {
+    label: '[RE++][Autopilot] Stand-on objType (0=off; e.g. Moonlight Village lantern)',
+    advanced: true,
+    type: 'range', value: 0, min: 0, max: 65535, step: 1,
+  }, (v: number) => sendDllFeature('reppStandOnType', v));
+  registerModeSetting('re-plus-plus', 'reppAvoidHazards', onOff('[RE++] Avoid hazards', 'on'),
+    (v: string) => sendDllFeature('reppAvoidHazards', v === 'on' ? 1 : 0));
+  registerModeSetting('re-plus-plus', 'reppDebugOverlay', onOff('[RE++] Debug overlay', 'on'),
+    (v: string) => sendDllFeature('reppDebugOverlay', v === 'on' ? 1 : 0));
+
   registerModeSetting('xdodge', 'xdodgeAstar', onOff('[Goal] Smart goal pathing'),
     (v: string) => sendDllFeature('xdodgeAstar', v === 'on' ? 1 : 0));
   registerModeSetting('xdodge', 'xdodgeWeighting', onOff('[Goal] Weighted danger field'),
@@ -224,7 +365,7 @@ export function register(ctx: PluginContext) {
   registerModeSetting('xdodge', 'enemyAutoLock', {
     label: 'Auto enemy lock',
     type: 'select',
-    value: 'off',
+    value: 'closest',
     options: [
       { label: 'Off', value: 'off' },
       { label: 'Closest enemy', value: 'closest' },
@@ -313,88 +454,84 @@ export function register(ctx: PluginContext) {
     (v: string) => sendDllFeature('rolloutDrawPath', v === 'on' ? 1 : 0));
 
   function syncModeSettings() {
-    sendDllFeature('xdodgeHitScale',       ctx.getSetting<number>('xdodgeHitScale'));
-    sendDllFeature('xdodgeRebuildN',       ctx.getSetting<number>('xdodgeRebuildN'));
-    sendDllFeature('xdodgePlanStepMs',     ctx.getSetting<number>('xdodgePlanStepMs'));
-    sendDllFeature('xdodgeDangerPenalty',  ctx.getSetting<number>('xdodgeDangerPenalty'));
-    sendDllFeature('xdodgeStayPenalty',    ctx.getSetting<number>('xdodgeStayPenalty'));
-    const fs = ctx.getSetting<string>('xdodgeFutureSample');
-    sendDllFeature('xdodgeFutureSample',   fs === 'on' ? 1 : 0);
-    sendDllFeature('xdodgeFutureHorizon',  ctx.getSetting<number>('xdodgeFutureHorizon'));
-    sendDllFeature('xdodgeFutureStride',   ctx.getSetting<number>('xdodgeFutureStride'));
-    sendDllFeature('dodgeHitScale',        ctx.getSetting<number>('dodgeHitScale'));
-    for (const k of ['xdodgeAstar', 'xdodgeWeighting', 'xdodgeSmartGoal', 'xdodgePerpBias', 'xdodgeSpeedMatch', 'xdodgeLockFollow', 'xdodgeWalkCache', 'xdodgeWallAvoid', 'xdodgeArbiter', 'xdodgeBfsBias', 'xdodgeCcd', 'xdodgeCatalog', 'xdodgeLosGoal', 'xdodgeWasdYield', 'xdodgeLateralPref', 'xdodgeGoalSticky', 'xdodgeAvoidEnemies', 'xdodgeGhostHit', 'xdodgeDrawPath'])
-      sendDllFeature(k, ctx.getSetting<string>(k) === 'on' ? 1 : 0);
-    sendDllFeature('xdodgeCcdPad', ctx.getSetting<number>('xdodgeCcdPad'));
-    const al = ctx.getSetting<string>('enemyAutoLock');
-    sendDllFeature('xdodgeAutoLock', autoLockModeToIdx(al));
-    // RE-Sim (Rollout) settings.
-    sendDllFeature('rolloutHorizonTicks',  ctx.getSetting<number>('rolloutHorizonTicks'));
-    sendDllFeature('rolloutSampleStepMs',  ctx.getSetting<number>('rolloutSampleStepMs'));
-    sendDllFeature('rolloutHeadings',      ctx.getSetting<number>('rolloutHeadings'));
-    sendDllFeature('rolloutHitScale',      ctx.getSetting<number>('rolloutHitScale'));
-    sendDllFeature('rolloutIntentWeight',  ctx.getSetting<number>('rolloutIntentWeight'));
-    sendDllFeature('rolloutRebuildN',      ctx.getSetting<number>('rolloutRebuildN'));
-    for (const k of ['rolloutAvoidEnemies', 'rolloutWasdYield', 'rolloutCommitDwell', 'rolloutDrawPath'])
-      sendDllFeature(k, ctx.getSetting<string>(k) === 'on' ? 1 : 0);
-    // zDodge settings.
-    sendDllFeature('zdodgeReactWindowMs', ctx.getSetting<number>('zdodgeReactWindowMs'));
-    sendDllFeature('zdodgeMaxMoveTiles', ctx.getSetting<number>('zdodgeMaxMoveTiles'));
-    sendDllFeature('zdodgePlayerRadius', ctx.getSetting<number>('zdodgePlayerRadius'));
-    sendDllFeature('zdodgeProjectileRadiusFallback', ctx.getSetting<number>('zdodgeProjectileRadiusFallback'));
-    sendDllFeature('zdodgeDamageThresholdPct', ctx.getSetting<number>('zdodgeDamageThresholdPct'));
-    for (const k of ['zdodgeDebugOverlay', 'zdodgeCandidateOverlay'])
-      sendDllFeature(k, ctx.getSetting<string>(k) === 'on' ? 1 : 0);
-    // Re-apply the 60fps cap here too. The onEnabledChange / clientConnected
-    // handlers were the only places setting targetFrameRate, so if the cap
-    // landed before the DLL was ready (or the player was already in-game
-    // when the plugin loaded) it never re-fired and the user had to toggle
-    // the setting off/on. This pushes it on every settings resync.
+    spreadSyncModeSettings();
     applyDodgeFps(ctx.enabled);
   }
 
-  ctx.onEnabledChange((enabled) => {
-    flush(!enabled);
-    applyDodgeFps(enabled);          // dodge on → 60fps, off → restore
+  const combatArm = createCombatMapArmer({
+    arm: () => activateDodgeForRealm(),
+    disarm: () => syncOnConnect(),
+    settleMs: 0,
+    requireWirePlayer: true,
   });
 
-  ctx.on('clientConnected', () => {
-    flush();
-    syncModeSettings();
-    applyDodgeFps(ctx.enabled);
+  installCombatWireEnemies(ctx, () => ctx.enabled && (combatArm.isArmed() || combatArm.isInCombatMap()));
+
+  function isDodgeAimActive(): boolean {
+    if (!ctx.enabled || !combatArm.isInCombatMap() || !combatArm.isArmed()) return false;
+    return autoLockModeToIdx(ctx.getSetting<string>('enemyAutoLock')) >= 1;
+  }
+  installCombatProxyAim(ctx, isDodgeAimActive);
+
+  ctx.onEnabledChange((enabled) => {
+    if (!enabled) {
+      cancelSpreadSync();
+      flush(true);
+      applyDodgeFps(false);
+      return;
+    }
+    combatArm.onEnabledChange(enabled);
+    if (combatArm.isInCombatMap()) {
+      flush(false);
+    }
   });
+
+  ctx.registerDllResync(() => {
+    if (!ctx.enabled) {
+      flush(true);
+      return;
+    }
+    if (combatArm.isInCombatMap()) {
+      flush(false);
+      if (combatArm.isArmed()) scheduleSpreadSync(0);
+    } else {
+      syncOnConnect();
+    }
+  });
+
+  ctx.hookPacket('NEWTICK', (client, packet) => {
+    if (!packet.isDefined) return;
+    if (client.objectId > 0) sendDllFeature('clientObjectId', client.objectId);
+    const pd = client.playerData;
+    if (pd.maxHealth > 0) {
+      sendDllFeature('clientMaxHp', pd.maxHealth);
+      sendDllFeature('clientHp', pd.health > 0 ? pd.health : pd.maxHealth);
+    }
+    combatArm.onNewTick(client, ctx.enabled);
+  });
+
   ctx.on('clientDisconnected', () => {
+    cancelSpreadSync();
     flush(true);
     applyDodgeFps(false);
+    sendDllFeature('clientHp', 0);
+    sendDllFeature('clientMaxHp', 0);
+    sendDllFeature('clientObjectId', 0);
+    combatArm.onDisconnect();
   });
 
-  // Re-sync everything on every realm/dungeon entry. The proxy↔game
-  // socket typically persists across realm hops so clientConnected
-  // doesn't re-fire, but the DLL can reset state (notably the FPS cap)
-  // on a world reload — so the 60fps lock would silently drop off.
-  // Debounced 300ms so a normal portal sequence (multiple MAPINFOs in
-  // <1s) re-syncs once, not three times.
-  let _mapinfoDebounce: ReturnType<typeof setTimeout> | null = null;
-  ctx.hookPacket('MAPINFO', () => {
+  ctx.hookPacket('MAPINFO', (_client, packet) => {
     try {
-      if (_mapinfoDebounce) clearTimeout(_mapinfoDebounce);
-      _mapinfoDebounce = setTimeout(() => {
-        _mapinfoDebounce = null;
-        // syncModeSettings touches the DLL bridge; if the pipe is mid-
-        // reconnect any throw here would otherwise reach Node as an
-        // unhandled error in a setTimeout callback (= process crash).
-        try { if (ctx.enabled) syncModeSettings(); }
-        catch (err) { ctx.log('MAPINFO resync failed: ' + (err as Error).message); }
-      }, 300);
+      if (!packet.isDefined) return;
+      combatArm.onMapInfo(mapNameFromPacket(packet), ctx.enabled);
     } catch (err) {
-      // Belt-and-suspenders: a throw inside a packet hook propagates up
-      // through the proxy and can take the whole socket down.
       ctx.log('MAPINFO hook error: ' + (err as Error).message);
     }
   });
 
   ctx.registerCleanup(() => {
+    cancelSpreadSync();
     flush(true);
-    applyDodgeFps(false);           // restore uncapped on unload
+    applyDodgeFps(false);
   });
 }

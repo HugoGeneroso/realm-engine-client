@@ -5,6 +5,7 @@ import { PlayerData } from './PlayerData.js';
 import { Logger } from '../util/Logger.js';
 import { dumpLocalPlayerStats } from '../util/StatDump.js';
 import { normalizeMapDisplayName } from '../util/mapDisplayName.js';
+import { sendDllFeature } from '../bridge/DllFeatureBus.js';
 
 /**
  * Hooks core packets to maintain PlayerData state.
@@ -30,7 +31,7 @@ export class StateManager {
    */
   private checkDefenseCalibration(pd: PlayerData): void {
     const dllDef = this.dllDefenseSource ? this.dllDefenseSource() : null;
-    if (dllDef === null) { this.defenseCalibrated = false; return; }  // re-arm for next load
+    if (dllDef === null || dllDef === 0) { this.defenseCalibrated = false; return; }  // re-arm or wait for valid memory pointer
     if (this.defenseCalibrated) return;
 
     const wireBase = pd.defense;
@@ -82,10 +83,12 @@ export class StateManager {
     client.lastTeleportGotoAt = 0;
     client.pendingTeleportSentAt = 0;
     client.pendingTeleportTargetObjectId = null;
+    sendDllFeature('clientObjectId', packet.data.objectId ?? 0);
     Logger.log('State', `Player created with objectId ${packet.data.objectId}`);
   }
 
   private onMapInfo(client: ClientConnection, packet: Packet): void {
+    client.receivedMapInfo = true;
     // RotmgPlayer uses displayName when present, falling back to name
     const displayName = packet.data.displayName ?? '';
     const name = packet.data.name ?? '';

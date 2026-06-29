@@ -58,6 +58,22 @@ int32_t GetClientDefense();
 void    SetClientDefense(int32_t defense);
 int32_t GetClientClassType();
 void    SetClientClassType(int32_t classType);
+int32_t GetClientHp();
+void    SetClientHp(int32_t hp);
+int32_t GetClientMaxHp();
+void    SetClientMaxHp(int32_t maxHp);
+int32_t GetClientObjectId();
+void    SetClientObjectId(int32_t objectId);
+
+// Authoritative player world position from proxy NEWTICK (tiles).
+bool    TryGetClientPos(float& outX, float& outY);
+float   GetClientPosX();
+float   GetClientPosY();
+void    SetClientPos(float x, float y);
+
+// Compact wire enemy list from proxy NEWTICK (id,type,x,y,hp,mhp|...).
+void    SetWireEnemySnapshot(const char* snapshot);
+bool    CopyWireEnemySnapshot(char* out, int outLen, ULONGLONG* outUpdatedMs);
 
 bool    GetProjectileNoclipEnabled();
 void    SetProjectileNoclipEnabled(bool enabled);
@@ -75,5 +91,13 @@ bool    GetSocketHotkeyActive();
 int     GetSocketHotkeyVk();
 void    SetSocketHotkeyActive(bool active);
 void    SetSocketHotkeyVk(int vk);
+
+bool    GetFollowEntityActive();
+void    SetFollowEntityActive(bool active);
+void    SetFollowEntityName(const char* name);
+void    GetFollowEntityName(char* out, int outLen);
+
+bool    GetGodModeEnabled();
+void    SetGodModeEnabled(bool enabled);
 
 } // namespace FeatureState

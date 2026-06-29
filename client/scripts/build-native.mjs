@@ -15,7 +15,29 @@ if (!existsSync(nativeDir)) {
   console.log('[build:native] electron/native not found — writing stubs and skipping native build.');
   mkdirSync(nativeOutDir, { recursive: true });
   if (!existsSync(helloEventStub)) {
-    writeFileSync(helloEventStub, '// Stub — real implementation provided by the Windows native build.\nexport function signalHelloEvent() {}\n');
+    writeFileSync(helloEventStub, `// Stub — overwritten by src/native/hello-event.js in dev; koffi at runtime.
+import koffi from 'koffi';
+const EVENT_NAME = 'Local\\\\LFGInternalHelloReady';
+let signaled = false;
+let signalFn = null;
+if (process.platform === 'win32') {
+  try {
+    const kernel32 = koffi.load('kernel32.dll');
+    const CreateEventW = kernel32.func('CreateEventW', 'void*', ['void*', 'int', 'int', 'str16']);
+    const SetEvent = kernel32.func('SetEvent', 'int', ['void*']);
+    const CloseHandle = kernel32.func('CloseHandle', 'int', ['void*']);
+    signalFn = () => {
+      if (signaled) return;
+      const h = CreateEventW(null, 1, 0, EVENT_NAME);
+      if (!h) return;
+      SetEvent(h);
+      CloseHandle(h);
+      signaled = true;
+    };
+  } catch { signalFn = null; }
+}
+export function signalHelloEvent() { signalFn?.(); }
+`);
   }
   if (!existsSync(rotmgSharedStub)) {
     writeFileSync(rotmgSharedStub, '// Stub — real implementation provided by the Windows native build.\nexport const DEFENSE_UNSET = -1;\nexport function openShared() { return false; }\nexport function readPosition() { return null; }\n');

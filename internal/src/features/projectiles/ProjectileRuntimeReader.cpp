@@ -18,11 +18,22 @@ static bool AddrOk(const void* p)
 static void ReadCollisionHalf(WorldProjectile& dst, void* projectilePtr, uint8_t* props,
                               ProjectileCollisionFallback fallbackMode)
 {
-    float collMult = *reinterpret_cast<float*>(props + RuntimeOffsets::PP_CollMult);
+    float collMult = 1.f;
+    float magnitude = 0.f;
+    __try {
+        const uint32_t cmOff = RuntimeOffsets::PP_CollMult;
+        const uint32_t magOff = RuntimeOffsets::PP_Magnitude;
+        if (cmOff >= 0x8u && cmOff < 0x800u)
+            collMult = *reinterpret_cast<float*>(props + cmOff);
+        if (magOff >= 0x8u && magOff < 0x800u)
+            magnitude = *reinterpret_cast<float*>(props + magOff);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        collMult = 1.f;
+        magnitude = 0.f;
+    }
     if (!std::isfinite(collMult) || collMult <= 0.f || collMult > 20.f)
         collMult = 1.0f;
 
-    const float magnitude = *reinterpret_cast<float*>(props + RuntimeOffsets::PP_Magnitude);
     dst.magnitude = magnitude;
 
     float baseRadius = 0.f;

@@ -21,6 +21,7 @@ import type { GameWorldState } from '../../state/GameWorldState.js';
 import type { GameDataLoader } from '../../game-data/GameDataLoader.js';
 import { Logger } from '../../util/Logger.js';
 import { DebugManager } from '../../util/DebugManager.js';
+import { getServerDirectory } from '../../services/ServerDirectory.js';
 import { RuntimeScheduler } from '../../util/RuntimeScheduler.js';
 import { getRealmengineDataDir, getRealmengineDocumentsDir } from '../../util/rotmgAssetExtractor.js';
 
@@ -359,7 +360,7 @@ export class DevServer {
     lastPluginConfigId?: string;
     singleClientOnly?: boolean;
   } = {
-    singleClientOnly: true,
+    singleClientOnly: false,
   };
   /** Parsed `spritesheet.xml` from extractor dump; invalidated when mtime changes. */
   private wikiSprites!: WikiSpriteService;
@@ -923,6 +924,7 @@ export class DevServer {
     }
     this.broadcastPluginState();
     this.syncPluginHotkeysToDll();
+    this.pluginManager.resyncAllDllPlugins();
     return { ok: true, message: `Loaded config "${String(snapshot.name || snapshot.id || 'config')}".` };
   }
 
@@ -994,7 +996,7 @@ export class DevServer {
           rotmgPath: raw.rotmgPath,
           rotmgExtractorGameDataPath: raw.rotmgExtractorGameDataPath,
           lastPluginConfigId: raw.lastPluginConfigId,
-          singleClientOnly: true,
+          singleClientOnly: raw.singleClientOnly === true,
         };
       }
     } catch (err) {
@@ -1102,6 +1104,7 @@ export class DevServer {
     bridge.on('authenticated', () => {
       this.broadcastInternalState();
       this.syncPluginHotkeysToDll();
+      this.pluginManager.resyncAllDllPlugins();
     });
     bridge.on('disconnected',  () => this.broadcastInternalState());
     bridge.on('unresolvedClasses', (list: string[]) => {
@@ -1315,7 +1318,7 @@ export class DevServer {
   }
 
   private isSingleClientOnlyEnabled(): boolean {
-    return this.config.singleClientOnly !== false;
+    return this.config.singleClientOnly === true;
   }
 
   private getRunningProcessCount(imageName: string): number {
@@ -1356,7 +1359,6 @@ export class DevServer {
     }
   }
 
-
   private getSingleClientLaunchBlockError(): string | null {
     if (!this.isSingleClientOnlyEnabled()) return null;
     if (this.getRunningRotmgExaltProcessCount() < 1) return null;
@@ -1394,6 +1396,35 @@ export class DevServer {
       const msg = (err as Error).message;
       Logger.error('DevServer', `Failed to launch RotMG: ${msg}`);
       return { ok: false, error: msg };
+    }
+  }
+
+  /** Hot DLL deploy: kill any running client and relaunch (skips single-client gate). */
+  hotRelaunchGameAfterDllUpdate(): { ok: boolean; error?: string } {
+    this.terminateProcessByImageName('RotMGExalt.exe');
+    this.terminateProcessByImageName('RotMG Exalt.exe');
+    const gamePath = this.getRotmgPath();
+    if (!gamePath) {
+      return { ok: false, error: 'RotMG path not configured.' };
+    }
+    const exePath = join(gamePath, 'RotMG Exalt.exe');
+    if (!existsSync(exePath)) {
+      return { ok: false, error: `RotMG Exalt.exe not found at: ${exePath}` };
+    }
+    try {
+      const child = spawn(exePath, [], { cwd: gamePath, detached: true, stdio: 'ignore' });
+      child.unref();
+      Logger.log('DevServer', `Hot DLL relaunch from: ${exePath}`);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  }
+
+  broadcastDllHotReload(status: string, detail?: string): void {
+    const msg = JSON.stringify({ type: 'dllHotReload', status, detail });
+    for (const client of this.wss.clients) {
+      if (client.readyState === WebSocket.OPEN) client.send(msg);
     }
   }
 
@@ -1514,6 +1545,15 @@ export class DevServer {
     return [];
   }
 
+  private syncServersFromDirectory(): void {
+    this.servers = getServerDirectory().getAll();
+    this.serverNames = Object.keys(this.servers).sort();
+    this.ipToServerName = {};
+    for (const [name, host] of Object.entries(this.servers)) {
+      this.ipToServerName[host] = name;
+    }
+  }
+
   /**
    * Verify with Deca then launch RotMG Exalt with token-based args (LoginGUI-style: verify only, no bind).
    * @param compactWindow Unity window size below in-game minimum (MAC multibox launch sidebar).
@@ -1568,6 +1608,17 @@ export class DevServer {
 
     const { token, tokenTimestamp, tokenExpiration } = verifyResult;
 
+    try {
+      const serversPath = join(this.publicDir, '..', '..', '..', 'data', 'servers.json');
+      const count = await getServerDirectory().refreshFromApi(token);
+      if (count > 0) {
+        getServerDirectory().saveToFile(serversPath);
+        this.syncServersFromDirectory();
+      }
+    } catch (err) {
+      Logger.warn('DevServer', `Server list refresh before launch failed: ${(err as Error).message}`);
+    }
+
     const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64');
     const args = `data:{platform:Deca,guid:${b64(email)},token:${b64(token)},tokenTimestamp:${b64(tokenTimestamp)},tokenExpiration:${b64(tokenExpiration)},env:4,serverName:${serverName}}`;
     const windowExtras = this.buildCredentialLaunchWindowExtras(opts);
@@ -1588,6 +1639,7 @@ export class DevServer {
           accountId: opts?.accountId ?? null,
           accountLabel: opts?.accountLabel ?? null,
           email,
+          serverName,
         });
       }
       if (wr && process.platform === 'win32' && launcherPid > 0) {
@@ -3662,6 +3714,7 @@ export class DevServer {
           this.broadcastConfig();
         } else if (msg.type === 'updateSingleClientOnly') {
           this.config.singleClientOnly = msg.value !== false;
+          this.saveConfig();
           this.broadcastConfig();
         }
       } catch {}

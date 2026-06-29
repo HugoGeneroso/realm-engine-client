@@ -23,6 +23,7 @@
 #include "XDodge.h"
 #include "RolloutDodge.h"
 #include "ZDodge.h"
+#include "RePP.h"
 #include "SpeedHack.h"
 #include <string>
 #include <cctype>
@@ -106,8 +107,15 @@ namespace {
             FH("playerColliderSceneReset", PlayerCollider::ResetScene()),
             FH_BOOL("colliderEnabled", PlayerCollider::SetEnabled),
             FH_FLOAT("colliderMultiplier", PlayerCollider::SetMultiplier),
+            FH_BOOL("godModeEnabled", FeatureState::SetGodModeEnabled),
             FH("clientDefense", FeatureState::SetClientDefense(static_cast<int32_t>(f.Int()))),
             FH("clientClassType", FeatureState::SetClientClassType(static_cast<int32_t>(f.Int()))),
+            FH("clientHp", FeatureState::SetClientHp(static_cast<int32_t>(f.Int()))),
+            FH("clientMaxHp", FeatureState::SetClientMaxHp(static_cast<int32_t>(f.Int()))),
+            FH("clientObjectId", FeatureState::SetClientObjectId(static_cast<int32_t>(f.Int()))),
+            FH("clientPosX", FeatureState::SetClientPos(f.Float(), FeatureState::GetClientPosY())),
+            FH("clientPosY", FeatureState::SetClientPos(FeatureState::GetClientPosX(), f.Float())),
+            FH_TEXT("wireEnemySnapshot", FeatureState::SetWireEnemySnapshot),
             FH_INT("autoDodgeMode", IpcBridge_SetAutoDodgeMode),
             FH_FLOAT("autoDodgeHorizonMs", IpcBridge_SetAutoDodgeHorizonMs),
             FH_FLOAT("autoDodgeHitboxPadding", IpcBridge_SetAutoDodgeHitboxPadding),
@@ -117,7 +125,9 @@ namespace {
             FH_FLOAT("autoAbilityMpPct", IpcBridge_SetAutoAbilityMpPct),
             FH_INT("autoAbilityWizardMode", IpcBridge_SetAutoAbilityWizardMode),
             FH_INT("targetFrameRate", FpsSetter::SetTargetFps),
-            FH_TEXT("showPluginFloatingText", FloatingTextService::QueuePluginText)
+            FH_TEXT("showPluginFloatingText", FloatingTextService::QueuePluginText),
+            FH_BOOL("followEntityActive", FeatureState::SetFollowEntityActive),
+            FH_TEXT("followEntityName", FeatureState::SetFollowEntityName)
         };
         return ApplyFeatureTable(f, h, sizeof(h) / sizeof(h[0]));
     }
@@ -199,6 +209,22 @@ namespace {
         return ApplyFeatureTable(f, h, sizeof(h) / sizeof(h[0]));
     }
 
+    bool ApplyReppFeature(const FeatureCommand& f)
+    {
+        static const FeatureHandler h[] = {
+            FH_FLOAT("reppReactWindowMs", RePP::SetReactWindowMs),
+            FH_FLOAT("reppMaxMoveTiles", RePP::SetMaxMoveTiles),
+            FH_FLOAT("reppHitScale", RePP::SetHitScale),
+            FH_FLOAT("reppDangerWeight", RePP::SetDangerWeight),
+            FH_INT("reppMode", RePP::SetMode),
+            FH_INT("reppStandOnType", RePP::SetStandOnType),
+            FH_INT_BOOL("reppFollowLantern", RePP::SetFollowLantern),
+            FH_INT_BOOL("reppAvoidHazards", RePP::SetAvoidHazards),
+            FH_INT_BOOL("reppDebugOverlay", RePP::SetDebugOverlay)
+        };
+        return ApplyFeatureTable(f, h, sizeof(h) / sizeof(h[0]));
+    }
+
     bool ApplyInputCameraSkinFeature(const FeatureCommand& f)
     {
         static const FeatureHandler h[] = {
@@ -257,6 +283,7 @@ namespace FeatureCommandRegistry {
         if (ApplyCoreFeature(feature)) return true;
         if (ApplyXDodgeFeature(feature)) return true;
         if (ApplyZDodgeFeature(feature)) return true;
+        if (ApplyReppFeature(feature)) return true;
         if (ApplyRolloutFeature(feature)) return true;
         if (ApplyInputCameraSkinFeature(feature)) return true;
         ApplyDangerPlannerFeature(feature);

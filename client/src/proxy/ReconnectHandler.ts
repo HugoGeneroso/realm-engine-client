@@ -51,6 +51,24 @@ function patchHelloKey(template: Buffer, keyOffset: number, newKey: Buffer): Buf
 }
 
 /**
+ * Patch gameId, keyTime, and key in a raw HELLO buffer.
+ * gameId is always at offset 5; keyTime sits 4 bytes before the key length prefix.
+ */
+function patchHelloReconnect(
+  template: Buffer,
+  keyOffset: number,
+  gameId: number,
+  keyTime: number,
+  newKey: Buffer,
+): Buffer {
+  const patched = patchHelloKey(template, keyOffset, newKey);
+  patched.writeInt32BE(gameId, 5);
+  patched.writeInt32BE(keyTime, keyOffset - 4);
+  patched.writeInt32BE(patched.length, 0);
+  return patched;
+}
+
+/**
  * Handles the critical reconnect interception flow.
  * When the game sends RECONNECT (changing realms/dungeons), this handler:
  * 1. Stores the real server address + key in State
@@ -85,8 +103,8 @@ export class ReconnectHandler {
     client.state = this.proxy.getState(client, key);
 
     // Capture the raw HELLO as a template for future reconnects.
-    // This avoids re-serialization from potentially stale packet definitions.
-    if (packet.rawBytes.length > 0) {
+    // Skip re-capture when restoring from a prior session — keep the original login template.
+    if (packet.rawBytes.length > 0 && (!client.state.pendingKeyRestore || !client.state.helloTemplate)) {
       client.state.helloTemplate = Buffer.from(packet.rawBytes);
       client.state.helloKeyOffset = findHelloKeyOffset(client.state.helloTemplate);
       Logger.debug('reconnect', 'Reconnect', `[HELLO] Captured template (${client.state.helloTemplate.length} bytes, keyOffset=${client.state.helloKeyOffset})`);
@@ -108,10 +126,11 @@ export class ReconnectHandler {
     Logger.debug('reconnect', 'Reconnect', `[HELLO] State lookup — conRealKey (${client.state.conRealKey.length} bytes): ${client.state.conRealKey.toString('hex').slice(0, 80)}`);
 
     // For the first connection (no prior RECONNECT), use the IP from the DLL hook
-    // But ignore 127.0.0.1 — that's our own proxy address from rewritten RECONNECTs
-    if (client.originalTargetIp && client.originalTargetIp !== '127.0.0.1' &&
-        client.state.conTargetAddress === '54.241.208.233') {
-      Logger.debug('reconnect', 'Reconnect', `[HELLO] Overriding default server with DLL target: ${client.originalTargetIp}`);
+    // or dashboard launch server. Ignore 127.0.0.1 — that's our proxy address.
+    if (!client.state.pendingKeyRestore
+        && client.originalTargetIp
+        && client.originalTargetIp !== '127.0.0.1') {
+      Logger.debug('reconnect', 'Reconnect', `[HELLO] Using resolved target: ${client.originalTargetIp}`);
       client.state.conTargetAddress = client.originalTargetIp;
     }
 
@@ -120,16 +139,33 @@ export class ReconnectHandler {
     // HELLO was triggered by a RECONNECT (server-initiated or plugin-initiated).
     if (client.state.pendingKeyRestore) {
       const realKey = client.state.conRealKey;
-      Logger.debug('reconnect', 'Reconnect', `[HELLO] Restoring key (${realKey.length} bytes): ${realKey.toString('hex').slice(0, 80) || '(empty — fresh connection)'}`);
+      const realGameId = client.state.conRealGameId;
+      const realKeyTime = client.state.conRealKeyTime;
+      Logger.debug('reconnect', 'Reconnect', `[HELLO] Restoring reconnect fields — gameId: ${realGameId}, keyTime: ${realKeyTime}, key (${realKey.length} bytes): ${realKey.toString('hex').slice(0, 80) || '(empty — fresh connection)'}`);
 
-      // Patch the key directly in the raw HELLO template instead of re-serializing.
-      if (client.state.helloTemplate && client.state.helloKeyOffset >= 0) {
-        packet.rawBytes = patchHelloKey(client.state.helloTemplate, client.state.helloKeyOffset, realKey);
-        // Do NOT set packet.modified — we want connectToServer to use rawBytes directly
-        Logger.debug('reconnect', 'Reconnect', `[HELLO] Patched raw template (${packet.rawBytes.length} bytes)`);
+      const hasSessionKey = realKey.length > 0;
+      const clientKeyOffset = packet.rawBytes.length > 0 ? findHelloKeyOffset(packet.rawBytes) : -1;
+      const useLoginTemplate = hasSessionKey
+        && client.state.helloTemplate
+        && client.state.helloKeyOffset >= 0;
+      const baseTemplate = useLoginTemplate ? client.state.helloTemplate! : packet.rawBytes;
+      const keyOffset = useLoginTemplate ? client.state.helloKeyOffset : clientKeyOffset;
+
+      // Realm/dungeon reconnects carry a session key — patch the original login template.
+      // Server switches use the client's current HELLO bytes (already updated from RECONNECT).
+      if (keyOffset >= 0 && baseTemplate.length > 0) {
+        packet.rawBytes = patchHelloReconnect(
+          baseTemplate,
+          keyOffset,
+          realGameId,
+          realKeyTime,
+          realKey,
+        );
+        Logger.debug('reconnect', 'Reconnect', `[HELLO] Patched ${useLoginTemplate ? 'login template' : 'client HELLO'} (${packet.rawBytes.length} bytes)`);
       } else {
-        // Fallback: re-serialize (only if template capture failed)
         Logger.warn('Reconnect', '[HELLO] No raw template available, falling back to re-serialization');
+        packet.data.gameId = realGameId;
+        packet.data.keyTime = realKeyTime;
         packet.data.key = realKey;
         packet.modified = true;
       }
@@ -193,6 +229,7 @@ export class ReconnectHandler {
     // Track current gameId (map identifier) across reconnects
     if (typeof gameId === 'number' && Number.isFinite(gameId)) {
       client.state.gameId = gameId;
+      client.state.conRealGameId = gameId;
     }
 
     // Store the real server target from raw bytes (works even if definitions are stale)
@@ -203,11 +240,19 @@ export class ReconnectHandler {
       client.state.conTargetPort = port;
     }
 
+    if (typeof keyTime === 'number' && Number.isFinite(keyTime)) {
+      client.state.conRealKeyTime = keyTime;
+    }
+
     if (key && Buffer.isBuffer(key) && key.length > 0) {
       client.state.conRealKey = Buffer.from(key);
     }
 
-    Logger.debug('reconnect', 'Reconnect', `[RECONNECT] Stored — address: ${client.state.conTargetAddress}, port: ${client.state.conTargetPort}, keyLen: ${client.state.conRealKey.length}`);
+    Logger.debug('reconnect', 'Reconnect', `[RECONNECT] Stored — address: ${client.state.conTargetAddress}, port: ${client.state.conTargetPort}, gameId: ${client.state.conRealGameId}, keyTime: ${client.state.conRealKeyTime}, keyLen: ${client.state.conRealKey.length}`);
+
+    // The game server will drop its TCP connection; keep the client socket alive until
+    // the game client reconnects to our proxy with a fresh HELLO.
+    client.prepareForClientReconnect();
 
     // Rewrite the packet to redirect client back to our proxy.
     // Patch raw bytes directly instead of re-serializing from definitions.

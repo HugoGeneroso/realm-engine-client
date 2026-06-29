@@ -11,8 +11,10 @@
 #include "helpers.h"
 #include "Il2CppResolver.h"
 #include "DbgFileLog.h"
+#include "CrashTrace.h"
 #include "BeebyteName.h"
 #include "RuntimeOffsets.h"
+#include "BootGate.h"
 
 #include <windows.h>
 #include "minhook/MinHook.h"
@@ -41,6 +43,11 @@ static const int   kSpawnParamCount = 12;
 // readable metadata first, then fall back to the older hardcoded name.
 __declspec(noinline) static Il2CppClass* ResolveProjClass()
 {
+    // Structural auto-recovery (A1) wins: the class found via its ProjectileProperties*
+    // field survives BeeByte renames, so once the BootGate Discovery pass recovers it
+    // we use it directly — bullets are captured again with no dump after a patch.
+    if (Il2CppClass* rec = RuntimeOffsets::GetRecoveredProjClass()) return rec;
+
     static Il2CppClass* s_cached = nullptr;
     if (s_cached) return s_cached;
 
@@ -101,6 +108,41 @@ static inline bool AddrOk(const void* p)
 {
     const uintptr_t a = reinterpret_cast<uintptr_t>(p);
     return a > 0x10000 && a < 0x7FFFFFFFFFFFULL;
+}
+
+__declspec(noinline) static Il2CppClass* SafeResolveProjClass()
+{
+    Il2CppClass* klass = nullptr;
+    __try {
+        klass = ResolveProjClass();
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        klass = nullptr;
+    }
+    return klass;
+}
+
+__declspec(noinline) static const MethodInfo* LookupSpawnMethod(Il2CppClass* klass)
+{
+    if (!klass) return nullptr;
+    const MethodInfo* mi = il2cpp_class_get_method_from_name(klass, kSpawnMethodName, kSpawnParamCount);
+    if (mi && AddrOk(mi->methodPointer)) return mi;
+    void* iter = nullptr;
+    for (const MethodInfo* cand; (cand = il2cpp_class_get_methods(klass, &iter)) != nullptr; ) {
+        if (cand->parameters_count == kSpawnParamCount && AddrOk(cand->methodPointer))
+            return cand;
+    }
+    return nullptr;
+}
+
+__declspec(noinline) static const MethodInfo* SafeLookupSpawnMethod(Il2CppClass* klass)
+{
+    const MethodInfo* mi = nullptr;
+    __try {
+        mi = LookupSpawnMethod(klass);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        mi = nullptr;
+    }
+    return mi;
 }
 
 
@@ -179,11 +221,151 @@ static bool TryReadObjectPropertiesIsEnemy(void* objProps, bool& outIsEnemy)
 {
     outIsEnemy = false;
     if (!AddrOk(objProps)) return false;
+    const uint32_t off = RuntimeOffsets::OP_IsEnemy;
+    if (off == 0u || off >= 0x8000u) return false;
     __try {
-        outIsEnemy = *reinterpret_cast<bool*>(reinterpret_cast<uint8_t*>(objProps) + RuntimeOffsets::OP_IsEnemy);
+        outIsEnemy = *reinterpret_cast<bool*>(reinterpret_cast<uint8_t*>(objProps) + off);
         return true;
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
     return false;
+}
+
+static bool ProjectileOffsetsUsable()
+{
+    if (!BootGate::FeatureAllowed("ProjectileTracking")) return false;
+    const uint32_t px = RuntimeOffsets::PosX;
+    const uint32_t py = RuntimeOffsets::PosY;
+    if (px < 0x8u || px >= 0x800u) return false;
+    if (py < 0x8u || py >= 0x800u) return false;
+    const uint32_t ppSpeed = RuntimeOffsets::PP_Speed;
+    if (ppSpeed < 0x8u || ppSpeed >= 0x800u) return false;
+    return true;
+}
+
+struct SpawnCaptureCtx {
+    void*     ret;
+    void*     objProps;
+    void*     projProps;
+    int32_t   attackerObjId;
+    uint32_t  ownerObjId;
+    float     angle;
+    int32_t   bulletId;
+    float     spawnX;
+    float     spawnY;
+    bool      canHitPlayer;
+    bool      isLocalShot;
+    ULONGLONG spawnTickPre;
+};
+
+// Inner SEH shell — no C++ objects with destructors in this function (C2712).
+__declspec(noinline) static int SafeTrackSpawnedProjectile_SEH(const SpawnCaptureCtx* c)
+{
+    __try {
+        bool ownerIsEnemy = false;
+        const bool ownerClassified = TryReadObjectPropertiesIsEnemy(c->objProps, ownerIsEnemy);
+        const bool isEnemyShot = !c->isLocalShot
+            && ((ownerClassified && ownerIsEnemy) || (!ownerClassified && c->canHitPlayer));
+        if (isEnemyShot) {
+            char buf[128];
+            std::snprintf(buf, sizeof(buf), "SpawnDetour:enemy shot oid=%u bid=%d",
+                c->ownerObjId, c->bulletId);
+            CrashTrace::Push(buf);
+        }
+        if (!c->isLocalShot && !isEnemyShot)
+            return 1;
+
+        float entityX = 0.f, entityY = 0.f;
+        LookupShooterOrigin(c->attackerObjId, c->ownerObjId, entityX, entityY);
+
+        float sx, sy;
+        if (fabsf(entityX) > 0.5f || fabsf(entityY) > 0.5f) {
+            sx = entityX + c->spawnX;
+            sy = entityY + c->spawnY;
+        } else {
+            float liveX = 0.f, liveY = 0.f;
+            if (TryReadLivePos(c->ret, liveX, liveY) &&
+                (fabsf(liveX) > 0.5f || fabsf(liveY) > 0.5f)) {
+                sx = liveX;
+                sy = liveY;
+            } else {
+                sx = c->spawnX;
+                sy = c->spawnY;
+            }
+        }
+
+        WorldProjectile p{};
+        p.startX = sx;
+        p.startY = sy;
+        p.angle = c->angle;
+        p.spawnTick = c->spawnTickPre;
+        p.valid = true;
+        p.canHitPlayer = c->canHitPlayer;
+        p.ptr = c->ret;
+        p.bulletId = c->bulletId;
+        p.attackerObjId = c->attackerObjId;
+        p.ownerObjId = c->ownerObjId;
+        p.speed = 5000.f;
+        p.lifetime = 2000.f;
+        p.minDamage = 100;
+        p.damage = 100;
+        p.x = sx;
+        p.y = sy;
+
+        void* const ppEffective = ProjectileRuntimeReader::EffectivePropsFromProjectile(c->ret, c->projProps);
+        if (ProjectileRuntimeReader::ApplyProperties(p, c->ret, ppEffective,
+                ProjectileCollisionFallback::SpawnHook)) {
+            if (p.speed < 1.f || p.speed > 50000.f || p.lifetime < 50.f || p.lifetime > 600000.f) {
+                p.speed = 5000.f;
+                p.lifetime = 2000.f;
+                p.minDamage = 100;
+                p.damage = 100;
+            }
+        }
+
+        p.speedMul = ComputeEffectiveSpeedMulFromInstance(c->ret);
+
+        if (AddrOk(c->ret)) {
+            const uint32_t px = RuntimeOffsets::PosX;
+            const uint32_t py = RuntimeOffsets::PosY;
+            if (px >= 0x8u && px < 0x800u && py >= 0x8u && py < 0x800u) {
+                uint8_t* pi = reinterpret_cast<uint8_t*>(c->ret);
+                const float rx = *reinterpret_cast<float*>(pi + px);
+                const float ry = *reinterpret_cast<float*>(pi + py);
+                if (std::isfinite(rx) && std::isfinite(ry)) {
+                    p.x = rx;
+                    p.y = ry;
+                }
+            }
+        }
+        if (!(fabsf(p.x) > 0.5f || fabsf(p.y) > 0.5f)) {
+            float posX = p.x;
+            float posY = p.y;
+            if (ProjectileTrajectory::GetPositionAtTime(p, 0.f, posX, posY)) {
+                p.x = posX;
+                p.y = posY;
+            }
+        }
+
+        ProjectileTrajectory::CachePath(p);
+
+        const WorldProjectile snap = ProjectileStore::StoreProjectile(isEnemyShot, p);
+        if (isEnemyShot) {
+            ProjectileCatalog::RecordSpawn(0, snap);
+            ProjectileStore::NotifyHazardSpawn(snap);
+        }
+        return 1;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return 0;
+    }
+}
+
+static void SafeTrackSpawnedProjectile(const SpawnCaptureCtx& c)
+{
+    if (SafeTrackSpawnedProjectile_SEH(&c)) return;
+    static int s_sehN = 0;
+    if (s_sehN++ < 8)
+        DBG_FILE_LOG("[ProjectileTracking] SpawnDetour track SEH (enemy/local bullet capture aborted)");
+    CrashTrace::Push("SpawnDetour:SEH track");
 }
 
 void* __fastcall SpawnProjectileDetour(
@@ -202,8 +384,8 @@ void* __fastcall SpawnProjectileDetour(
     bool     isAbility,
     void*    methodInfo)
 {
-    RuntimeOffsets::EnsureAll();
-
+    // Never call EnsureAll / IL2CPP walks from the spawn hook thread — caused
+    // illegal-instruction crashes when the first enemy bullet fired (~tid != render).
     float spawnX = startX;
     float spawnY = startY;
     const int32_t dk = g_LocalDictKey.load(std::memory_order_relaxed);
@@ -266,101 +448,11 @@ void* __fastcall SpawnProjectileDetour(
     if (!AddrOk(ret))
         return ret;
 
-    bool ownerIsEnemy = false;
-    const bool ownerClassified = TryReadObjectPropertiesIsEnemy(objProps, ownerIsEnemy);
-    const bool isEnemyShot = !isLocalShot && ((ownerClassified && ownerIsEnemy) || (!ownerClassified && canHitPlayer));
-    if (!isLocalShot && !isEnemyShot)
-        return ret;
-
-    float entityX = 0.f, entityY = 0.f;
-    LookupShooterOrigin(attackerObjId, ownerObjId, entityX, entityY);
-
-    float sx, sy;
-    if (fabsf(entityX) > 0.5f || fabsf(entityY) > 0.5f) {
-        sx = entityX + spawnX;
-        sy = entityY + spawnY;
-    } else {
-        float liveX = 0.f, liveY = 0.f;
-        if (TryReadLivePos(ret, liveX, liveY) &&
-            (fabsf(liveX) > 0.5f || fabsf(liveY) > 0.5f)) {
-            sx = liveX;
-            sy = liveY;
-        } else {
-            sx = spawnX;
-            sy = spawnY;
-        }
-    }
-
-    WorldProjectile p{};
-    p.startX = sx;
-    p.startY = sy;
-    p.angle = angle;
-    p.spawnTick = spawnTickPre;
-    p.valid = true;
-    p.canHitPlayer = canHitPlayer;
-    p.ptr = ret;
-    p.bulletId = bulletId;
-    p.attackerObjId = attackerObjId;
-    p.ownerObjId = ownerObjId;
-    p.speed = 5000.f;
-    p.lifetime = 2000.f;
-    p.minDamage = 100;
-    p.damage = 100;
-    p.isAccelerating = false;
-    p.useAccel       = false;
-    p.acceleration = 0.f;
-    p.accelerationInv = 0.f;
-    p.velocityChangeRate = 0.f;
-    p.velocityChangeRateInv = 0.f;
-    p.accelDelay = 0.f;
-    p.speedClamp = 0.f;
-    p.projPropsPtr = nullptr;
-    p.x = sx;
-    p.y = sy;
-
-    void* const ppEffective = ProjectileRuntimeReader::EffectivePropsFromProjectile(ret, projProps);
-    if (ProjectileRuntimeReader::ApplyProperties(p, ret, ppEffective, ProjectileCollisionFallback::SpawnHook)) {
-        if (p.speed < 1.f || p.speed > 50000.f || p.lifetime < 50.f || p.lifetime > 600000.f) {
-            p.speed = 5000.f;
-            p.lifetime = 2000.f;
-            p.minDamage = 100;
-            p.damage = 100;
-        }
-    }
-
-    p.speedMul = ComputeEffectiveSpeedMulFromInstance(ret);
-
-    if (AddrOk(ret)) {
-        __try {
-            uint8_t* pi = reinterpret_cast<uint8_t*>(ret);
-            p.x = *reinterpret_cast<float*>(pi + RuntimeOffsets::PosX);
-            p.y = *reinterpret_cast<float*>(pi + RuntimeOffsets::PosY);
-        } __except (EXCEPTION_EXECUTE_HANDLER) {
-            float posX = p.x;
-            float posY = p.y;
-            if (ProjectileTrajectory::GetPositionAtTime(p, 0.f, posX, posY)) {
-                p.x = posX;
-                p.y = posY;
-            }
-        }
-    } else {
-        float posX = p.x;
-        float posY = p.y;
-        if (ProjectileTrajectory::GetPositionAtTime(p, 0.f, posX, posY)) {
-            p.x = posX;
-            p.y = posY;
-        }
-    }
-
-    ProjectileTrajectory::CachePath(p);
-
-    const WorldProjectile snap = ProjectileStore::StoreProjectile(isEnemyShot, p);
-    if (isEnemyShot) {
-        // Seed per-dungeon type catalog (debug viz only — planner doesn't read).
-        // Owner type passed as 0 here; resolution from WorldTAB is done later by
-        // debug tools that care. Same-bullet/0-owner entries deduplicate safely.
-        ProjectileCatalog::RecordSpawn(0, snap);
-        ProjectileStore::NotifyHazardSpawn(snap);
+    if (ProjectileOffsetsUsable()) {
+        const SpawnCaptureCtx ctx{
+            ret, objProps, projProps, attackerObjId, ownerObjId,
+            angle, bulletId, spawnX, spawnY, canHitPlayer, isLocalShot, spawnTickPre };
+        SafeTrackSpawnedProjectile(ctx);
     }
 
     return ret;
@@ -371,10 +463,40 @@ void* __fastcall SpawnProjectileDetour(
 namespace ProjectileTracking {
 
 static void* g_spawnTarget = nullptr;
+static int   s_deferInstallFrames = 0;
+constexpr int kProjInstallDeferFramesMenu = 480;
+constexpr int kProjInstallDeferFramesRealm = 30;
+
+void RequestDeferredInstall()
+{
+    if (g_Installed) return;
+    s_deferInstallFrames = BootGate::LazyOffsetLookupAllowed()
+        ? kProjInstallDeferFramesRealm
+        : kProjInstallDeferFramesMenu;
+}
+
+void TickDeferredInstall()
+{
+    if (g_Installed) return;
+    if (s_deferInstallFrames > 0) {
+        --s_deferInstallFrames;
+        return;
+    }
+    if (!BootGate::FeatureAllowed("ProjectileTracking"))
+        return;
+    Install();
+}
 
 void Install()
 {
     if (g_Installed) return;
+    if (!BootGate::FeatureAllowed("ProjectileTracking")) {
+        static int s_n = 0;
+        if ((s_n++ % 240) == 0)
+            DBG_FILE_LOG("[ProjectileTracking] Install blocked: BootGate offsets not ready "
+                "(HBEAKBIHANL or deps stale, attempt=" << s_n << ")");
+        return;
+    }
     {
         static int s_n = 0;
         if ((s_n++ % 240) == 0)
@@ -387,18 +509,16 @@ void Install()
         g_EntCsInit = true;
     }
 
-    Il2CppClass* klass = ResolveProjClass();
-    if (!klass) {
+    Il2CppClass* klass = SafeResolveProjClass();
+    if (!klass || !AddrOk(klass)) {
         static int s_n = 0;
         if ((s_n++ % 240) == 0)
-            DBG_FILE_LOG("[ProjectileTracking] Install: projectile class '"
-                << kProjClassName << "' UNRESOLVED — BeeByte name stale for this "
-                "game build. No bullets captured → XDodge has nothing to dodge. "
+            DBG_FILE_LOG("[ProjectileTracking] Install: projectile class UNRESOLVED "
                 "(attempt=" << s_n << ")");
         return;
     }
-    const MethodInfo* mi = il2cpp_class_get_method_from_name(klass, kSpawnMethodName, kSpawnParamCount);
-    if (!mi || !mi->methodPointer) {
+    const MethodInfo* mi = SafeLookupSpawnMethod(klass);
+    if (!mi || !AddrOk(mi->methodPointer)) {
         static int s_n = 0;
         if ((s_n++ % 240) == 0)
             DBG_FILE_LOG("[ProjectileTracking] Install: class OK but spawn method '"
@@ -421,11 +541,16 @@ void Install()
             reinterpret_cast<void*>(&SpawnProjectileDetour),
             reinterpret_cast<void**>(&g_OriginalSpawn)) != MH_OK)
         return;
-    if (MH_EnableHook(g_spawnTarget) != MH_OK)
+    // Queue + ApplyQueued freezes threads — safe when structural scan recovers the
+    // projectile class mid-combat (MH_EnableHook during active spawns crashed).
+    if (MH_QueueEnableHook(g_spawnTarget) != MH_OK)
+        return;
+    if (MH_ApplyQueued() != MH_OK)
         return;
 
     EnsureHbeakSpeedMulFieldOffset();
     g_Installed = true;
+    CrashTrace::Push("ProjectileTracking:spawn hook INSTALLED");
     DBG_FILE_LOG("[ProjectileTracking] Install: spawn hook INSTALLED — bullets now captured");
 }
 

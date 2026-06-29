@@ -16,6 +16,9 @@
 #include "DbgFileLog.h"
 #include "FloatingTextService.h"
 #include "GameState.h"
+#include "LocalPlayer.h"
+#include "RuntimeOffsets.h"
+#include "BootGate.h"
 #include "AutoAim.h"
 #include "ProjNoclip.h"
 #include "Noclip.h"
@@ -23,6 +26,7 @@
 #include "gui/tabs/CombatTab/CombatTAB.h"
 #include "gui/tabs/CameraTAB.h"
 #include "DangerPlanner.h"
+#include "ProjectileTracking.h"
 
 #include <limits>
 #include <climits>
@@ -30,13 +34,28 @@
 #include <cstring>
 #include <string>
 
+namespace WorldTAB { bool IsPlayableRealmMap(); bool ReadMapName(char* buf, int bufLen); bool FindPlayerByName(const char* query, int32_t& outObjectId, char* outMatchedName, int nameLen); void ForceRefresh(); bool TryResolveLocalFromProxyOid(int32_t proxyOid); }
+
 namespace {
 
     void ApplyAutoAimFeatureState()
     {
         static int s_lastEnabled = -1, s_lastMode = -1;
         const int enabled = FeatureState::GetAutoAimEnabled() ? 1 : 0;
-        if (enabled != s_lastEnabled) { s_lastEnabled = enabled; AutoAim::SetEnabled(enabled != 0); }
+        if (enabled != s_lastEnabled) {
+            if (enabled != 0 && !GameState::GetLocalPtr() && !WorldTAB::IsPlayableRealmMap()) {
+                static int s_deferN = 0;
+                if ((s_deferN++ % 120) == 0)
+                    DBG_FILE_LOG("[AutoAim] IPC defer enable (hub/menu — wait for realm)");
+                return;
+            }
+            if (enabled != 0 && !BootGate::FeatureAllowed("ProjectileTracking")) {
+                RuntimeOffsets::KickAsyncStructuralScan();
+            }
+            s_lastEnabled = enabled;
+            DBG_FILE_LOG("[AutoAim] IPC autoAimEnabled=" << (enabled != 0));
+            AutoAim::SetEnabled(enabled != 0);
+        }
         const int aimMode = FeatureState::GetAutoAimMode();
         if (aimMode != s_lastMode) {
             s_lastMode = aimMode;
@@ -58,16 +77,51 @@ namespace {
 
     void ApplyAutoDodgeFeatureState()
     {
-        static int s_lastMode = INT32_MIN;
+        // Start at Off — the dashboard's first IPC sync also sends 0; treating
+        // INT32_MIN as "unset" used to run ApplyDodgeModeWithEnter on every boot
+        // and hang/crash the render thread in the SetEnabled batch (~4s freeze).
+        static int s_lastMode = static_cast<int>(TestTAB::DodgeMode::Off);
         static float s_lastHorizonMs = -1.f;
         int dodgeMode = FeatureState::GetAutoDodgeMode();
         if (dodgeMode != s_lastMode) {
+            // Require a live character (maxHp > 0), not just a transient local ptr.
+            // Enabling dodge in Nexus triggered il2cpp_class_for_each and hung ~53s.
+            if (dodgeMode != static_cast<int>(TestTAB::DodgeMode::Off)) {
+                char mapName[64] = {};
+                WorldTAB::ReadMapName(mapName, sizeof(mapName));
+                const bool inRealm = WorldTAB::IsPlayableRealmMap();
+                const int32_t proxyOid = FeatureState::GetClientObjectId();
+                const int wireMaxHp = FeatureState::GetClientMaxHp();
+                // Never ForceRefresh on render thread during portal load — defer until
+                // proxy NEWTICK confirms the new realm character (objectId + maxHp).
+                if (!inRealm || proxyOid <= 0 || wireMaxHp <= 0) {
+                    static int s_deferN = 0;
+                    if ((s_deferN++ % 120) == 0)
+                        DBG_FILE_LOG("[DodgeSwap] dodge deferred (need realm wire player oid="
+                            << proxyOid << " maxHp=" << wireMaxHp
+                            << " map=" << (mapName[0] ? mapName : "?") << ")");
+                    return;
+                }
+                if (proxyOid > 0)
+                    WorldTAB::TryResolveLocalFromProxyOid(proxyOid);
+                if (!BootGate::FeatureAllowed("ProjectileTracking")) {
+                    static int s_deferN = 0;
+                    if ((s_deferN++ % 120) == 0)
+                        DBG_FILE_LOG("[DodgeSwap] dodge deferred (projectile offsets not ready — "
+                            "HBEAKBIHANL stale)");
+                    RuntimeOffsets::KickAsyncStructuralScan();
+                    return;
+                }
+            }
             DBG_FILE_LOG("[DodgeSwap] IPC autoDodgeMode changed " << s_lastMode << " -> " << dodgeMode
-                << " (this is the raw index the dashboard sent; 4=ZDodge)");
+                << " (this is the raw index the dashboard sent; 4=ZDodge 5=RePP)");
             s_lastMode = dodgeMode;
             TestTAB::SetDodgeModeWithEnter(static_cast<TestTAB::DodgeMode>(dodgeMode));
+            DBG_FILE_LOG("[DodgeSwap] IPC SetDodgeModeWithEnter returned");
         }
-        if (dodgeMode != static_cast<int>(TestTAB::DodgeMode::Off)) DangerPlanner::TryInstall();
+        if (dodgeMode != static_cast<int>(TestTAB::DodgeMode::Off)) {
+            DangerPlanner::TickDeferredInstall();
+        }
         float horizonMs = FeatureState::GetAutoDodgeHorizonMs();
         if (horizonMs != s_lastHorizonMs) { s_lastHorizonMs = horizonMs; TestTAB::SetDodgeLookaheadMs(horizonMs); }
     }
@@ -110,6 +164,60 @@ namespace {
         }
         s_lastHotkeyDown = hotkeyDown;
         if (enabled != s_lastEnabled) { s_lastEnabled = enabled; Noclip::SetEnabled(enabled != 0); Noclip::SetMode(enabled != 0 ? 1 : 0); }
+    }
+
+    void ApplyProxyLocalRefresh()
+    {
+        static int32_t s_lastOid = 0;
+        const int32_t oid = FeatureState::GetClientObjectId();
+        if (oid > 0 && oid != s_lastOid) {
+            s_lastOid = oid;
+            // Full DoRefresh on the render thread hung ~3s in Nexus and crashed Unity.
+            WorldTAB::TryResolveLocalFromProxyOid(oid);
+        } else if (oid <= 0 && s_lastOid != 0) {
+            s_lastOid = 0;
+        }
+    }
+
+    void ApplyFollowEntityFeatureState()
+    {
+        static bool      s_lastActive = false;
+        static char      s_lastName[32] = {};
+        static int32_t   s_lastOid = 0;
+        static ULONGLONG s_lastLookupMs = 0;
+
+        const bool active = FeatureState::GetFollowEntityActive();
+        char name[32] = {};
+        FeatureState::GetFollowEntityName(name, sizeof(name));
+
+        if (!active || !name[0]) {
+            if (s_lastActive || s_lastOid != 0) {
+                DangerPlanner::ClearFollowPlayer();
+                s_lastOid = 0;
+            }
+            s_lastActive = false;
+            s_lastName[0] = '\0';
+            return;
+        }
+
+        if (!WorldTAB::IsPlayableRealmMap()) return;
+
+        const ULONGLONG now = GetTickCount64();
+        const bool nameChanged = strcmp(name, s_lastName) != 0;
+        if (nameChanged || now - s_lastLookupMs > 500) {
+            s_lastLookupMs = now;
+            WorldTAB::ForceRefresh();
+            int32_t oid = 0;
+            char matched[32] = {};
+            if (WorldTAB::FindPlayerByName(name, oid, matched, sizeof(matched))) {
+                if (oid != s_lastOid) {
+                    DangerPlanner::SetFollowPlayer(oid);
+                    s_lastOid = oid;
+                }
+            }
+            strncpy_s(s_lastName, name, _TRUNCATE);
+        }
+        s_lastActive = true;
     }
 
     void ApplyWalkTargetFeatureState()
@@ -285,8 +393,15 @@ void FeatureRuntime::CollectPluginToggleHotkeyEvents(std::vector<std::string>& o
 void FeatureRuntime::ApplyOverrides()
 {
     ApplyPlayerNoclipFeatureState();
-    if (GameState::GetLocalPtr() == nullptr) return;
+    ApplyAutoAimFeatureState();
+    ApplyProjectileNoclipFeatureState();
+    ApplyProxyLocalRefresh();
+    ApplyAutoDodgeFeatureState();
+    if (FeatureState::GetAutoDodgeMode() != 0 || FeatureState::GetAutoAimEnabled())
+        ProjectileTracking::TickDeferredInstall();
     if (GameState::GetWorldMgr() == nullptr) return;
-    ApplyAutoAimFeatureState(); ApplyProjectileNoclipFeatureState(); ApplyAutoDodgeFeatureState(); ApplyAutoAbilityFeatureState();
+    ApplyFollowEntityFeatureState();
+    if (GameState::GetLocalPtr() == nullptr) return;
+    ApplyAutoAbilityFeatureState();
     ApplyWalkTargetFeatureState(); ApplyCameraFeatureState(); FloatingTextService::ApplyPendingPluginText();
 }

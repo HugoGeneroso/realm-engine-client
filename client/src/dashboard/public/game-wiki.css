@@ -127,15 +127,15 @@
 /* Category-specific active colors */
 #tab-game-wiki .game-wiki-filter-chip[data-game-wiki-class="enemy"].active     { color: #f87171; border-color: #f87171; background: rgba(248,113,113,0.12); }
 #tab-game-wiki .game-wiki-filter-chip[data-game-wiki-class="projectile"].active { color: #fbbf24; border-color: #fbbf24; background: rgba(251,191,36,0.12); }
-#tab-game-wiki .game-wiki-filter-chip[data-game-wiki-class="container"].active  { color: #34d399; border-color: #34d399; background: rgba(52,211,153,0.12); }
+#tab-game-wiki .game-wiki-filter-chip[data-game-wiki-class="container"].active  { color: #2dd4bf; border-color: #2dd4bf; background: rgba(52,211,153,0.12); }
 #tab-game-wiki .game-wiki-filter-chip[data-game-wiki-class="portal"].active     { color: #a78bfa; border-color: #a78bfa; background: rgba(167,139,250,0.12); }
 #tab-game-wiki .game-wiki-filter-chip[data-game-wiki-class="player"].active     { color: #60a5fa; border-color: #60a5fa; background: rgba(96,165,250,0.12); }
 #tab-game-wiki .game-wiki-filter-chip[data-game-wiki-class="wall"].active       { color: #9ca3af; border-color: #9ca3af; background: rgba(156,163,175,0.12); }
-#tab-game-wiki .game-wiki-filter-chip[data-game-wiki-class="visual"].active     { color: #86efac; border-color: #86efac; background: rgba(134,239,172,0.12); }
+#tab-game-wiki .game-wiki-filter-chip[data-game-wiki-class="visual"].active     { color: #5eead4; border-color: #5eead4; background: rgba(134,239,172,0.12); }
 #tab-game-wiki .game-wiki-filter-chip[data-game-wiki-class="Damaging"].active,
 #tab-game-wiki .game-wiki-filter-chip[data-game-wiki-class="DamageAttrs"].active { color: #f87171; border-color: #f87171; background: rgba(248,113,113,0.12); }
 #tab-game-wiki .game-wiki-filter-chip[data-game-wiki-class="Sink"].active       { color: #60a5fa; border-color: #60a5fa; background: rgba(96,165,250,0.12); }
-#tab-game-wiki .game-wiki-filter-chip[data-game-wiki-class="Speed"].active      { color: #34d399; border-color: #34d399; background: rgba(52,211,153,0.12); }
+#tab-game-wiki .game-wiki-filter-chip[data-game-wiki-class="Speed"].active      { color: #2dd4bf; border-color: #2dd4bf; background: rgba(52,211,153,0.12); }
 #tab-game-wiki .game-wiki-filter-chip[data-game-wiki-class="Push"].active       { color: #fbbf24; border-color: #fbbf24; background: rgba(251,191,36,0.12); }
 #tab-game-wiki .game-wiki-filter-chip[data-game-wiki-class="Condition"].active  { color: #c084fc; border-color: #c084fc; background: rgba(192,132,252,0.12); }
 
@@ -237,11 +237,11 @@
 /* Object class badge colors */
 #tab-game-wiki .gwc-enemy      { background: rgba(248,113,113,0.15); color: #f87171; border-color: rgba(248,113,113,0.35); }
 #tab-game-wiki .gwc-projectile { background: rgba(251,191,36,0.15);  color: #fbbf24; border-color: rgba(251,191,36,0.35); }
-#tab-game-wiki .gwc-container  { background: rgba(52,211,153,0.15);  color: #34d399; border-color: rgba(52,211,153,0.35); }
+#tab-game-wiki .gwc-container  { background: rgba(52,211,153,0.15);  color: #2dd4bf; border-color: rgba(52,211,153,0.35); }
 #tab-game-wiki .gwc-portal     { background: rgba(167,139,250,0.15); color: #a78bfa; border-color: rgba(167,139,250,0.35); }
 #tab-game-wiki .gwc-player     { background: rgba(96,165,250,0.15);  color: #60a5fa; border-color: rgba(96,165,250,0.35); }
 #tab-game-wiki .gwc-wall       { background: rgba(156,163,175,0.15); color: #9ca3af; border-color: rgba(156,163,175,0.35); }
-#tab-game-wiki .gwc-visual     { background: rgba(134,239,172,0.15); color: #86efac; border-color: rgba(134,239,172,0.35); }
+#tab-game-wiki .gwc-visual     { background: rgba(134,239,172,0.15); color: #5eead4; border-color: rgba(134,239,172,0.35); }
 #tab-game-wiki .gwc-beacon     { background: rgba(253,186,116,0.15); color: #fdba74; border-color: rgba(253,186,116,0.35); }
 #tab-game-wiki .gwc-weapon     { background: rgba(251,146,60,0.15);  color: #fb923c; border-color: rgba(251,146,60,0.35); }
 #tab-game-wiki .gwc-ability    { background: rgba(34,211,238,0.15);  color: #22d3ee; border-color: rgba(34,211,238,0.35); }
@@ -253,7 +253,7 @@
 #tab-game-wiki .gwt-damageattrs{ background: rgba(248,113,113,0.10); color: #fca5a5; border-color: rgba(248,113,113,0.25); }
 #tab-game-wiki .gwt-condition  { background: rgba(192,132,252,0.15); color: #c084fc; border-color: rgba(192,132,252,0.35); }
 #tab-game-wiki .gwt-sink       { background: rgba(96,165,250,0.15);  color: #60a5fa; border-color: rgba(96,165,250,0.35); }
-#tab-game-wiki .gwt-speed      { background: rgba(52,211,153,0.15);  color: #34d399; border-color: rgba(52,211,153,0.35); }
+#tab-game-wiki .gwt-speed      { background: rgba(52,211,153,0.15);  color: #2dd4bf; border-color: rgba(52,211,153,0.35); }
 #tab-game-wiki .gwt-push       { background: rgba(251,191,36,0.15);  color: #fbbf24; border-color: rgba(251,191,36,0.35); }
 #tab-game-wiki .gwt-slide      { background: rgba(253,186,116,0.15); color: #fdba74; border-color: rgba(253,186,116,0.35); }
 #tab-game-wiki .gwt-nowalk     { background: rgba(156,163,175,0.15); color: #9ca3af; border-color: rgba(156,163,175,0.35); }
@@ -303,7 +303,7 @@
 
 #tab-game-wiki .xh-tag  { color: #60a5fa; }   /* blue  — tag names + brackets */
 #tab-game-wiki .xh-attr { color: #fbbf24; }   /* amber — attribute names */
-#tab-game-wiki .xh-val  { color: #86efac; }   /* green — quoted values */
+#tab-game-wiki .xh-val  { color: #5eead4; }   /* green — quoted values */
 
 #tab-game-wiki .game-wiki-xml-empty {
   font-size: 12px;
@@ -355,8 +355,8 @@
 
 #tab-game-wiki .game-wiki-copy-num.copied {
   background: rgba(52,211,153,0.15);
-  color: #34d399;
-  border-color: #34d399;
+  color: #2dd4bf;
+  border-color: #2dd4bf;
 }
 
 /* ── Detail pane ─────────────────────────────────────────── */
@@ -515,11 +515,11 @@
 /* Object category placeholder colors */
 #tab-game-wiki .gwc-ph-enemy      { background: rgba(248,113,113,0.18); color: #f87171; border-color: rgba(248,113,113,0.45); }
 #tab-game-wiki .gwc-ph-projectile { background: rgba(251,191,36,0.18);  color: #fbbf24; border-color: rgba(251,191,36,0.45); }
-#tab-game-wiki .gwc-ph-container  { background: rgba(52,211,153,0.18);  color: #34d399; border-color: rgba(52,211,153,0.45); }
+#tab-game-wiki .gwc-ph-container  { background: rgba(52,211,153,0.18);  color: #2dd4bf; border-color: rgba(52,211,153,0.45); }
 #tab-game-wiki .gwc-ph-portal     { background: rgba(167,139,250,0.18); color: #a78bfa; border-color: rgba(167,139,250,0.45); }
 #tab-game-wiki .gwc-ph-player     { background: rgba(96,165,250,0.18);  color: #60a5fa; border-color: rgba(96,165,250,0.45); }
 #tab-game-wiki .gwc-ph-wall       { background: rgba(156,163,175,0.18); color: #9ca3af; border-color: rgba(156,163,175,0.45); }
-#tab-game-wiki .gwc-ph-visual     { background: rgba(134,239,172,0.18); color: #86efac; border-color: rgba(134,239,172,0.45); }
+#tab-game-wiki .gwc-ph-visual     { background: rgba(134,239,172,0.18); color: #5eead4; border-color: rgba(134,239,172,0.45); }
 #tab-game-wiki .gwc-ph-beacon     { background: rgba(253,186,116,0.18); color: #fdba74; border-color: rgba(253,186,116,0.45); }
 #tab-game-wiki .gwc-ph-weapon     { background: rgba(251,146,60,0.18);  color: #fb923c; border-color: rgba(251,146,60,0.45); }
 #tab-game-wiki .gwc-ph-ability    { background: rgba(34,211,238,0.18);  color: #22d3ee; border-color: rgba(34,211,238,0.45); }
@@ -532,7 +532,7 @@
 #tab-game-wiki .gwt-ph-damageattrs { background: rgba(248,113,113,0.12); color: #fca5a5; border-color: rgba(248,113,113,0.3); }
 #tab-game-wiki .gwt-ph-condition   { background: rgba(192,132,252,0.18); color: #c084fc; border-color: rgba(192,132,252,0.45); }
 #tab-game-wiki .gwt-ph-sink        { background: rgba(96,165,250,0.18);  color: #60a5fa; border-color: rgba(96,165,250,0.45); }
-#tab-game-wiki .gwt-ph-speed       { background: rgba(52,211,153,0.18);  color: #34d399; border-color: rgba(52,211,153,0.45); font-size: 16px; font-weight: 900; }
+#tab-game-wiki .gwt-ph-speed       { background: rgba(52,211,153,0.18);  color: #2dd4bf; border-color: rgba(52,211,153,0.45); font-size: 16px; font-weight: 900; }
 #tab-game-wiki .gwt-ph-push        { background: rgba(251,191,36,0.18);  color: #fbbf24; border-color: rgba(251,191,36,0.45); }
 #tab-game-wiki .gwt-ph-slide       { background: rgba(253,186,116,0.18); color: #fdba74; border-color: rgba(253,186,116,0.45); }
 #tab-game-wiki .gwt-ph-nowalk      { background: rgba(156,163,175,0.18); color: #9ca3af; border-color: rgba(156,163,175,0.45); }

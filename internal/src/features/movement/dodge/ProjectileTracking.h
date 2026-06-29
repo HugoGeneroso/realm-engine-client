@@ -10,6 +10,8 @@ struct WorldProjectile;
 namespace ProjectileTracking {
 
     void Install();
+    void RequestDeferredInstall();
+    void TickDeferredInstall();
     void Uninstall();
     bool IsInstalled();
 

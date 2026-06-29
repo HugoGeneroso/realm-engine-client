@@ -9,11 +9,14 @@ export class State {
   readonly guid: string;
   client: ClientConnection;
   accountId = '';
-  conTargetAddress = '54.241.208.233'; // Default: USWest
+  conTargetAddress = ''; // Set on first HELLO from LaunchTargetResolver
   conTargetPort = 2050;
   /** GameId from HELLO/RECONNECT. Used as a coarse "current map" identifier. */
   gameId = -2;
   conRealKey: Buffer = Buffer.alloc(0);
+  /** gameId/keyTime from the last RECONNECT — patched into HELLO on the next handshake. */
+  conRealGameId = -2;
+  conRealKeyTime = -1;
   /** When true, ReconnectHandler will replace the HELLO key (even if conRealKey is empty). */
   pendingKeyRestore = false;
   /** Access token from the HELLO packet, used for API calls. */

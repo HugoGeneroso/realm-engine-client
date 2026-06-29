@@ -5,6 +5,7 @@ import type { PluginContext } from '../src/plugins/PluginContext.js';
 import type { ClientConnection } from '../src/proxy/ClientConnection.js';
 import { fetchServerList } from '../src/services/ServerListFetcher.js';
 import { getBakedServers } from '../src/config/BakedData.js';
+import { getServerDirectory } from '../src/services/ServerDirectory.js';
 
 /**
  * Server Switch plugin.
@@ -35,56 +36,84 @@ export function register(ctx: PluginContext) {
 
   let currentClient: ClientConnection | null = null;
   let hasFetchedFromApi = false;
+  let fetchScheduled = false;
 
   // Register the server dropdown (will be updated after API fetch)
+  function currentServers(): Record<string, string> {
+    const live = getServerDirectory().getAll();
+    return Object.keys(live).length > 0 ? live : servers;
+  }
+
   function rebuildDropdown(): void {
-    const serverNames = Object.keys(servers);
+    const map = currentServers();
+    const serverNames = Object.keys(map);
+    const current = String(ctx.getSetting<string>('server') ?? '');
+    const preserved = current && map[current] ? current : (serverNames[0] ?? '');
+
     const options = serverNames.map(name => ({
-      label: `${name} (${servers[name]})`,
+      label: `${name} (${map[name]})`,
       value: name,
     }));
 
     ctx.registerSetting('server', {
       label: 'Server',
       type: 'select',
-      value: serverNames[0] ?? '',
+      value: preserved,
       options,
     }, (val: string) => {
       if (!currentClient) {
         ctx.log('No client connected');
         return;
       }
-      const ip = servers[val];
+      const ip = map[val];
       if (!ip) {
         ctx.log(`Unknown server: ${val}`);
         return;
       }
       switchServer(currentClient, val, ip);
     });
+
+    ctx.notifySettingsChanged();
   }
 
   // Initial dropdown from fallback data
   rebuildDropdown();
 
-  // Track the active client + fetch live server list
-  ctx.on('clientConnected', (client) => {
-    currentClient = client;
+  function scheduleServerListFetch(client: ClientConnection): void {
+    if (hasFetchedFromApi || fetchScheduled || !client.state?.accessToken) return;
+    fetchScheduled = true;
 
-    if (!hasFetchedFromApi && client.state?.accessToken) {
-      hasFetchedFromApi = true;
-      fetchServerList(client.state.accessToken)
+    // Defer until the player is in-world so we don't compete with the login HELLO.
+    const token = client.state.accessToken;
+    setTimeout(() => {
+      fetchServerList(token)
         .then((apiServers) => {
           const count = Object.keys(apiServers).length;
           if (count > 0) {
             servers = apiServers;
+            getServerDirectory().merge(apiServers);
             rebuildDropdown();
             ctx.log(`Fetched ${count} servers from API`);
           }
+          hasFetchedFromApi = true;
         })
         .catch((err) => {
           ctx.log(`API fetch failed, using fallback: ${(err as Error).message}`);
+          hasFetchedFromApi = true;
+        })
+        .finally(() => {
+          fetchScheduled = false;
         });
-    }
+    }, 15_000);
+  }
+
+  // Track the active client + fetch live server list once in-world
+  ctx.on('clientConnected', (client) => {
+    currentClient = client;
+  });
+
+  ctx.hookPacket('MAPINFO', (client) => {
+    scheduleServerListFetch(client);
   });
 
   ctx.on('clientDisconnected', () => {
@@ -93,7 +122,8 @@ export function register(ctx: PluginContext) {
 
   // In-game command: /con {abbreviation}
   ctx.hookCommand('con', (client, _cmd, args) => {
-    const serverNames = Object.keys(servers);
+    const map = currentServers();
+    const serverNames = Object.keys(map);
 
     if (args.length === 0) {
       ctx.sendNotification(client, 'Server Switch', `Servers: ${serverNames.join(', ')}`);
@@ -111,14 +141,14 @@ export function register(ctx: PluginContext) {
     if (matches.length > 1) {
       const exact = matches.find(m => m.toLowerCase() === query);
       if (exact) {
-        switchServer(client, exact, servers[exact]);
+        switchServer(client, exact, map[exact]);
         return;
       }
       ctx.sendNotification(client, 'Server Switch', `Ambiguous: ${matches.join(', ')}`);
       return;
     }
 
-    switchServer(client, matches[0], servers[matches[0]]);
+    switchServer(client, matches[0], map[matches[0]]);
   });
 
   // ─── Core reconnect logic ──────────────────────────────
@@ -129,12 +159,15 @@ export function register(ctx: PluginContext) {
       return;
     }
 
-    ctx.log(`Switching to ${serverName} (${ip})...`);
+    const targetHost = getServerDirectory().getHost(serverName) ?? ip;
+    ctx.log(`Switching to ${serverName} (${targetHost})...`);
     ctx.sendNotification(client, 'Server Switch', `Connecting to ${serverName}...`);
 
-    client.state.conTargetAddress = ip;
+    client.state.conTargetAddress = targetHost;
     client.state.conTargetPort = 2050;
     client.state.conRealKey = Buffer.alloc(0);
+    client.state.conRealGameId = -2;
+    client.state.conRealKeyTime = -1;
 
     const reconnect = ctx.createPacket('RECONNECT');
     reconnect.data = {

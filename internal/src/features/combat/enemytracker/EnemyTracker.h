@@ -3,9 +3,9 @@
 #include <cstdint>
 #include <vector>
 
-// Shared, render-thread-only enemy snapshot. Call Tick() (self-throttled to
-// ~125 Hz) then consume via GetSnapshot / Enumerate. Velocity fields (vx, vy)
-// are tiles/ms, blended from MoVelocity + chord estimation.
+// Shared enemy snapshot (Present + game Update threads). Call Tick() (self-
+// throttled ~125 Hz, mutex + SEH) then read via SnapshotCopy / Enumerate.
+// Velocity fields (vx, vy) are tiles/ms, blended from MoVelocity + chord est.
 namespace EnemyTracker {
 
 struct Entry {
@@ -19,13 +19,12 @@ struct Entry {
     void*   ptr;             // raw entity pointer (for direct field reads)
 };
 
-// Rebuilds the snapshot from the world dictionary. Self-throttled, so any
-// consumer may call it before reading and redundant calls within a frame are
-// cheap no-ops.
+// Rebuilds the snapshot from the world dictionary. Self-throttled; redundant
+// calls within 8 ms are cheap no-ops. Thread-safe (exclusive lock + SEH).
 void Tick();
 
-// All entries from the last Tick (no filtering).
-const std::vector<Entry>& GetSnapshot();
+// Thread-safe copy of the last successful snapshot (shared lock).
+std::vector<Entry> SnapshotCopy();
 
 using Callback = void(*)(const Entry&, void* user);
 void Enumerate(Callback cb, void* user);
@@ -34,5 +33,9 @@ void Enumerate(Callback cb, void* user);
 // More reliable than ProjectileTracking::GetLocalPlayerObjectId() which
 // depends on WorldTAB having fired at least once.
 int32_t GetLocalPlayerObjectId();
+
+// Last rebuild stats (for diag.json / trace).
+int GetLastPodCount();
+int GetLastSnapshotCount();
 
 } // namespace EnemyTracker

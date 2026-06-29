@@ -164,6 +164,8 @@ namespace NoclipHook {
 
 void Tick()
 {
+    if (!Noclip::IsEnabled())
+        return;
     TryInstall();
 }
 

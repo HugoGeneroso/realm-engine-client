@@ -1,17 +1,16 @@
 import net from 'net';
 import { EventEmitter } from 'events';
-import { readFileSync, existsSync, readdirSync, unlinkSync } from 'fs';
-import { join } from 'path';
-import { tmpdir } from 'os';
-import { execFileSync } from 'child_process';
 import { ClientConnection } from './ClientConnection.js';
 import { PacketFactory } from '../packets/PacketFactory.js';
 import { type Packet } from '../packets/Packet.js';
 import { State } from '../state/State.js';
 import { Logger } from '../util/Logger.js';
+import { LaunchTargetResolver } from './LaunchTargetResolver.js';
+import { getServerDirectory, type ServerDirectory } from '../services/ServerDirectory.js';
 
-const TARGET_FILE = join(tmpdir(), 'rotmg_proxy_target.txt');
-const TARGET_FILE_PREFIX = 'rotmg_proxy_target_';
+export type ProxyOptions = {
+  serverDirectory?: ServerDirectory;
+};
 
 let _clientIdSeq = 0;
 function generateClientId(): string {
@@ -26,7 +25,7 @@ export type CommandHandler = (client: ClientConnection, command: string, args: s
  * fires packet events, and tracks connection state across reconnects.
  */
 export class Proxy extends EventEmitter {
-  static DEFAULT_SERVER = '54.241.208.233'; // USWest
+  private readonly launchTarget: LaunchTargetResolver;
 
   private listener: net.Server | null = null;
   private states = new Map<string, State>();
@@ -41,8 +40,26 @@ export class Proxy extends EventEmitter {
 
   constructor(
     public readonly packetFactory: PacketFactory,
+    options: ProxyOptions = {},
   ) {
     super();
+    const directory = options.serverDirectory ?? getServerDirectory();
+    this.launchTarget = new LaunchTargetResolver(directory);
+    this.setMaxListeners(32);
+  }
+
+  /** Default game-server host when no DLL/launch target is available. */
+  get defaultServerIp(): string {
+    return this.launchTarget.defaultHost;
+  }
+
+  cleanStaleTargetFiles(): void {
+    this.launchTarget.cleanStaleFiles();
+  }
+
+  /** @deprecated Use cleanStaleTargetFiles */
+  cleanStalePidFiles(): void {
+    this.cleanStaleTargetFiles();
   }
 
   /** Start the TCP listener. */
@@ -83,9 +100,16 @@ export class Proxy extends EventEmitter {
       newState.conTargetAddress = lastState.conTargetAddress;
       newState.conTargetPort = lastState.conTargetPort;
       newState.conRealKey = lastState.conRealKey;
+      newState.conRealGameId = lastState.conRealGameId;
+      newState.conRealKeyTime = lastState.conRealKeyTime;
       newState.pendingKeyRestore = true;
+      newState.accessToken = lastState.accessToken;
+      if (lastState.helloTemplate) {
+        newState.helloTemplate = Buffer.from(lastState.helloTemplate);
+        newState.helloKeyOffset = lastState.helloKeyOffset;
+      }
       newState.copyStoreFrom(lastState);
-      Logger.debug('reconnect', 'State', `Restored from previous — address: ${lastState.conTargetAddress}, port: ${lastState.conTargetPort}, keyLen: ${lastState.conRealKey.length}`);
+      Logger.debug('reconnect', 'State', `Restored from previous — address: ${lastState.conTargetAddress}, port: ${lastState.conTargetPort}, keyLen: ${lastState.conRealKey.length}, gameId: ${lastState.conRealGameId}, keyTime: ${lastState.conRealKeyTime}`);
     }
 
     return newState;
@@ -226,71 +250,11 @@ export class Proxy extends EventEmitter {
     }
   }
 
-  /** Read the original server IP from the legacy shared temp file (fallback). */
-  readOriginalTarget(): string {
-    const ip = this.readTargetFile(TARGET_FILE);
-    if (!ip) Logger.warn('Proxy', `No DLL target found, using default: ${Proxy.DEFAULT_SERVER}`);
-    return ip;
-  }
-
   private onLocalConnect(socket: net.Socket): void {
     Logger.log('Proxy', 'Client connected.');
     const client = new ClientConnection(this, socket);
     client.clientId = generateClientId();
-    client.originalTargetIp = this.readOriginalTargetForSocket(socket);
+    client.originalTargetIp = this.launchTarget.resolveForSocket(socket);
     this.emit('clientBeginConnect', client);
-  }
-
-  /** Resolve original server IP for an incoming socket using per-PID temp files.
-   *  Uses PowerShell Get-NetTCPConnection to map source port → game PID,
-   *  then reads rotmg_proxy_target_{PID}.txt written by the DLL.
-   *  Falls back to the legacy shared file if resolution fails. */
-  private readOriginalTargetForSocket(socket: net.Socket): string {
-    const remotePort = socket.remotePort;
-    if (remotePort && process.platform === 'win32') {
-      try {
-        const output = execFileSync('powershell.exe', [
-          '-NonInteractive', '-NoProfile', '-Command',
-          `(Get-NetTCPConnection -LocalPort ${remotePort} -RemotePort 2050 -State Established -ErrorAction SilentlyContinue | Select-Object -First 1).OwningProcess`,
-        ], { encoding: 'utf8', timeout: 2000, windowsHide: true } as any).trim();
-        const pid = parseInt(output, 10);
-        if (Number.isFinite(pid) && pid > 0) {
-          const pidFile = join(tmpdir(), `${TARGET_FILE_PREFIX}${pid}.txt`);
-          const ip = this.readTargetFile(pidFile);
-          if (ip) {
-            try { unlinkSync(pidFile); } catch {}
-            return ip;
-          }
-        }
-      } catch {
-        // PowerShell unavailable or timed out — fall through to legacy
-      }
-    }
-    return this.readOriginalTarget();
-  }
-
-  private readTargetFile(filePath: string): string {
-    try {
-      if (existsSync(filePath)) {
-        const ip = readFileSync(filePath, 'utf8').trim();
-        if (ip && /^\d+\.\d+\.\d+\.\d+$/.test(ip) && ip !== '127.0.0.1') {
-          Logger.log('Proxy', `DLL hook target (${filePath}): ${ip}`);
-          return ip;
-        }
-      }
-    } catch {}
-    return '';
-  }
-
-  /** Clean up any stale per-PID target files left over from previous sessions. */
-  cleanStalePidFiles(): void {
-    try {
-      const tmp = tmpdir();
-      for (const f of readdirSync(tmp)) {
-        if (f.startsWith(TARGET_FILE_PREFIX) && f.endsWith('.txt')) {
-          try { unlinkSync(join(tmp, f)); } catch {}
-        }
-      }
-    } catch {}
   }
 }

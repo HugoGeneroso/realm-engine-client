@@ -12,6 +12,7 @@
 #include "InitHooks.h"
 #include "IpcBridge.h"
 #include "DbgFileLog.h"
+#include "CrashTrace.h"
 
 HMODULE hModule;
 HANDLE hUnloadEvent;
@@ -76,6 +77,7 @@ void Run(LPVOID lpParam)
  SetConsoleTitleA("Debug Console");
 #endif
  DBG_FILE_LOG("[Run] Entered. Log path: " << DbgFileLogPath());
+ CrashTrace::Install();
 
 #if !defined(_DEBUG)
  if (IsDebuggerDetected() || HasAnalysisModulesLoaded()) return;

@@ -280,6 +280,11 @@ export class GameWorldState {
     return this.entities.get(objectId);
   }
 
+  /** Iterate every entity tracked from UPDATE + NEWTICK (for DLL wire feeds, etc.). */
+  forEachEntity(visitor: (entity: TrackedEntity) => void): void {
+    for (const entity of this.entities.values()) visitor(entity);
+  }
+
   getEntityType(objectId: number): number | undefined {
     return this.entities.get(objectId)?.objectType;
   }

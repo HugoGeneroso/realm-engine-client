@@ -76,6 +76,8 @@ export class PluginContext {
    *  by updateSetting. Powers the dashboard "Reset to defaults" button. */
   private _settingDefaults = new Map<string, any>();
   private _enabledChangeCallbacks: ((enabled: boolean) => void)[] = [];
+  /** Full DLL state push (combat settings beyond enable/disable). */
+  private _dllResyncCallbacks: (() => void)[] = [];
   private _data = new Map<string, any>();
   private _cleanupFns: (() => void)[] = [];
 
@@ -84,6 +86,9 @@ export class PluginContext {
 
   /** Callback set by PluginManager to broadcast structured data to dashboard clients. */
   public onBroadcastData: ((pluginId: string, type: string, data: any) => void) | null = null;
+
+  /** Callback set by PluginManager when setting metadata changes (e.g. select options). */
+  public onSettingsChanged: (() => void) | null = null;
 
   /** Game data (objects.xml parsed). Available after proxy startup. */
   public readonly gameData: GameDataLoader | null;
@@ -147,6 +152,22 @@ export class PluginContext {
   /** Register a callback that fires whenever the plugin is enabled or disabled. */
   onEnabledChange(cb: (enabled: boolean) => void): void {
     this._enabledChangeCallbacks.push(cb);
+  }
+
+  /** Register a handler that re-pushes all DLL feature keys (bridge auth / config reload). */
+  registerDllResync(cb: () => void): void {
+    this._dllResyncCallbacks.push(cb);
+  }
+
+  /** Re-send enable state + registered resync handlers to the injected DLL. */
+  resyncDllState(): void {
+    for (const cb of this._enabledChangeCallbacks) {
+      try { cb(this._enabled); } catch {}
+    }
+    if (!this._enabled) return;
+    for (const cb of this._dllResyncCallbacks) {
+      try { cb(); } catch {}
+    }
   }
 
   get name(): string {
@@ -233,6 +254,11 @@ export class PluginContext {
     const cb = this._settingCallbacks.get(key);
     if (cb) cb(value);
     return true;
+  }
+
+  /** Notify the dashboard that setting definitions/options changed. */
+  notifySettingsChanged(): void {
+    this.onSettingsChanged?.();
   }
 
   /** Get all settings for dashboard rendering. */

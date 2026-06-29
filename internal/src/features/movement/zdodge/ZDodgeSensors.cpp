@@ -3,6 +3,7 @@
 
 #include "AoeTracking.h"
 #include "AutoAim.h"
+#include "BootGate.h"
 #include "features/combat/enemytracker/EnemyTracker.h"
 #include "ProjectileTracking.h"
 #include "gui/tabs/WorldTAB.h"
@@ -136,6 +137,10 @@ SensorSnapshot Build(float playerX, float playerY, const Settings& settings)
         out.projectileSourceUnavailable = true;
         return out;
     }
+    if (!BootGate::FeatureAllowed("ProjectileTracking")) {
+        out.projectileSourceUnavailable = true;
+        return out;
+    }
 
     const float cullSq = kThreatCullTiles * kThreatCullTiles;
     const float fallbackRadius = SafeRadius(settings.projectileRadiusFallback, Settings{}.projectileRadiusFallback);
@@ -146,7 +151,8 @@ SensorSnapshot Build(float playerX, float playerY, const Settings& settings)
     std::vector<int32_t> enemyIds;
     enemyIds.reserve(kMaxBlockers);
     EnemyTracker::Tick();
-    for (const auto& e : EnemyTracker::GetSnapshot()) {
+    const std::vector<EnemyTracker::Entry> enemySnap = EnemyTracker::SnapshotCopy();
+    for (const auto& e : enemySnap) {
         if (!e.hasHealthBar) continue;
         if (!IsFinitePoint(e.x, e.y)) continue;
         if (e.id != 0) enemyIds.push_back(e.id);

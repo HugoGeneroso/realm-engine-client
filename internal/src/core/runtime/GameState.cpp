@@ -2,6 +2,7 @@
 #include "GameState.h"
 #include "RuntimeOffsets.h"
 #include "Il2CppResolver.h"
+#include "DbgFileLog.h"
 
 #include <Windows.h>
 
@@ -16,7 +17,9 @@ static void*        s_appMgr           = nullptr;  // cached after first success
 static void*        s_worldMgr         = nullptr;  // re-read every Tick
 static void*        s_localPtr         = nullptr;  // re-read every Tick
 static ULONGLONG    s_lastAppMgrTry    = 0;        // rate-limits the expensive FindObjectsByType
+static ULONGLONG    s_appMgrDeferUntil = 0;        // skip FindObjectsOfType during login/menu
 static bool         s_wmOffsetResolved = false;    // true once AppMgr_WorldMgr is dynamically set
+static constexpr ULONGLONG kAppMgrDeferMs = 20000ULL;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -61,7 +64,17 @@ void Tick()
     if (!AddrOk(s_appMgr))
     {
         const ULONGLONG now = GetTickCount64();
-        if (now - s_lastAppMgrTry < 5000ULL) return;
+        // UnityEngine.Object.FindObjectsOfType on the render thread during login/menu
+        // has hung/crashed the process (~3s freeze then UnityCrashHandler).
+        if (!s_appMgrDeferUntil) {
+            s_appMgrDeferUntil = now + kAppMgrDeferMs;
+            DBG_FILE_LOG("[GameState] AppMgr lookup deferred "
+                << kAppMgrDeferMs << "ms (avoid FindObjectsOfType during login)");
+            return;
+        }
+        if (now < s_appMgrDeferUntil) return;
+
+        if (s_lastAppMgrTry != 0 && now - s_lastAppMgrTry < 5000ULL) return;
         s_lastAppMgrTry = now;
 
         if (!s_appMgrClass)
@@ -114,9 +127,15 @@ void Tick()
     if (!AddrOk(wm)) { s_worldMgr = nullptr; s_localPtr = nullptr; return; }
     s_worldMgr = wm;
 
-    // ── Step 3: LocalPtr — 1 deref per frame ─────────────────────────────────
+    // ── Step 3: LocalPtr — prefer WM_Local; keep NotifyLocalPtr / entity-scan
+    // fallback across brief null windows during realm transitions (WM_Local often
+    // lags one+ frames behind the entity dict).
     void* lp = ReadPtr(wm, RuntimeOffsets::WM_Local);
-    s_localPtr = PtrOk(lp) ? lp : nullptr;
+    if (PtrOk(lp)) {
+        s_localPtr = lp;
+    } else if (s_localPtr && !PtrOk(s_localPtr)) {
+        s_localPtr = nullptr;
+    }
 }
 
 void NotifyLocalPtr(void* ptr)

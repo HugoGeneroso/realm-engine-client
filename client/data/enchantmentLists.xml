@@ -1,0 +1,297 @@
+<?xml version="1.0" encoding="utf-8"?>
+<EnchantmentLists>
+  <EnchantmentList type="0x0000" id="Default Enchantment Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0001" id="Fool Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="ATTACK,DEXTERITY,SPEED,LIFE,MANA,DEFENSE,WISDOM,VITALITY" excludeLabelsOR="UNIQUE" mult="0.2" />
+    <ModifyEnchantmentWeight id="JESTERS_TRICK" mult="15" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0002" id="Devil Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="ATTACK" excludeLabelsOR="UNIQUE" mult="4.5" />
+    <ModifyEnchantmentWeight id="SHAITANS_MIGHT" mult="15" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0003" id="Sun Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="DEXTERITY" excludeLabelsOR="UNIQUE" mult="4.5" />
+    <ModifyEnchantmentWeight id="PIRATES_EXPERTISE" mult="15" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0005" id="Death Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="DEFENSE" excludeLabelsOR="UNIQUE" mult="4.5" />
+    <ModifyEnchantmentWeight id="SANDSTONE_RESILIENCE" mult="15" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0006" id="Tower Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="LIFE" excludeLabelsOR="UNIQUE" mult="4.5" />
+    <ModifyEnchantmentWeight id="VAMPRIC_LIFEFORCE" mult="15" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0007" id="Magician Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="WISDOM" excludeLabelsOR="UNIQUE" mult="4.5" />
+    <ModifyEnchantmentWeight id="AVALONS_INTELLECT" mult="15" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0008" id="Chariot Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="SPEED" excludeLabelsOR="UNIQUE" mult="4.5" />
+    <ModifyEnchantmentWeight id="STHENOS_SWIFTNESS" mult="15" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0009" id="Moon Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="MANA" excludeLabelsOR="UNIQUE" mult="4.5" />
+    <ModifyEnchantmentWeight id="MERMAID_MAGIC" mult="15" />
+  </EnchantmentList>
+  <EnchantmentList type="0x000a" id="World Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="VITALITY" excludeLabelsOR="UNIQUE" mult="4.5" />
+    <ModifyEnchantmentWeight id="CRYSTALLINE_VIGOR" mult="15" />
+  </EnchantmentList>
+  <EnchantmentList type="0x000b" id="Premium Silver Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="TIER1" mult="0" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="TIER2" mult="2.166" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="UNIQUE,AWAKENED" mult="1.8" />
+  </EnchantmentList>
+  <EnchantmentList type="0x000c" id="Premium Gold Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="TIER1,TIER2" mult="0" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="TIER3" mult="4.25" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="UNIQUE,AWAKENED" mult="2.6" />
+  </EnchantmentList>
+  <EnchantmentList type="0x000d" id="Premium Diamond Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="TIER1,TIER2,TIER3" mult="0" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="UNIQUE,AWAKENED" mult="3.4" />
+  </EnchantmentList>
+  <EnchantmentList type="0x000e" id="Kogbold Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="TIER1" mult="0" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="TIER2" mult="2.166" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="ATTACK" mult="9" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="TRADEOFF" mult="4.5" />
+    <ModifyEnchantmentWeight id="KOGBOLD_SPIRIT" mult="15" />
+    <ModifyEnchantmentWeight id="MOLECULAR_BLADE" mult="15" />
+    <ModifyEnchantmentWeight id="HIGH_VOLTAGE" mult="15" />
+    <ModifyEnchantmentWeight id="ARTIFICIAL_CORE" mult="15" />
+  </EnchantmentList>
+  <EnchantmentList type="0x000f" id="Nest Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="TIER1" mult="0" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="TIER2" mult="2.166" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="DEXTERITY" mult="9" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="SUMMON" mult="4.5" />
+    <ModifyEnchantmentWeight id="LIVING_HIVE_BEEHEMOTH" mult="15" />
+    <ModifyEnchantmentWeight id="BUZZING_BULLETS_STINGER" mult="15" />
+    <ModifyEnchantmentWeight id="SWARM_TREE_WRATH" mult="15" />
+    <ModifyEnchantmentWeight id="APITOXIN" mult="15" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0010" id="LOD Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="DAMAGE,DURABILITY,RECOVERY,CASTING" mult="7" />
+    <ModifyEnchantmentWeight id="DRAKE_WARDEN" mult="15" />
+    <ModifyEnchantmentWeight id="AWAKENED_SNAKE_EYE_RING" mult="15" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0011" id="Tomb Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="LIFE,DEXTERITY,DEFENSE" mult="7" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="DUALSTAT" mult="3" />
+    <ModifyEnchantmentWeight id="ANCIENTS_BLESSING" mult="15" />
+    <ModifyEnchantmentWeight id="ANCIENT_ARTIFACTS" mult="15" />
+  </EnchantmentList>
+  <EnchantmentList type="0x001a" id="Lucky Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="REWARD" excludeLabelsOR="UNIQUE" mult="4.5" />
+    <ModifyEnchantmentWeight id="LUCKY_STREAK" mult="15" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0028" id="HUDL Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="WISDOM,DEXTERITY" mult="7" />
+    <ModifyEnchantmentWeight id="AWAKENED_DOOM_BOW" mult="15" />
+    <ModifyEnchantmentWeight id="NECROTIC_KNOWLEDGE" mult="15" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0029" id="IAbyss Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="VITALITY,ATTACK" mult="7" />
+    <ModifyEnchantmentWeight id="AWAKENED_DEMON_BLADE" mult="15" />
+    <ModifyEnchantmentWeight id="INFERNAL_ANGER" mult="15" />
+  </EnchantmentList>
+  <EnchantmentList type="0x002d" id="AI Malogia Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE,ALIEN" excludeLabelsOR="NEO_ALIEN" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="VITALITY,ATTACK" mult="7" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="ALIEN" excludeLabelsOR="AWAKENED" mult="5" />
+  </EnchantmentList>
+  <EnchantmentList type="0x002e" id="AI Untaris Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE,ALIEN" excludeLabelsOR="NEO_ALIEN" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="WISDOM,MANA,MAGIC" mult="7" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="ALIEN" excludeLabelsOR="AWAKENED" mult="5" />
+  </EnchantmentList>
+  <EnchantmentList type="0x002f" id="AI Forax Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE,ALIEN" excludeLabelsOR="NEO_ALIEN" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="SPEED,LIFE,HEAL" mult="7" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="ALIEN" excludeLabelsOR="AWAKENED" mult="5" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0030" id="AI Katalund Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE,ALIEN" excludeLabelsOR="NEO_ALIEN" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="DEXTERITY,DEFENSE" mult="7" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="ALIEN" excludeLabelsOR="AWAKENED" mult="5" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0012" id="Magus Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE,MAGUS" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="WISDOM,MANA" mult="9" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="MAGUS" mult="100000000" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0013" id="Sniper Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE,SNIPER" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="ATTACK,VITALITY" mult="9" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="SNIPER" mult="100000000" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0014" id="Stalwart Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE,STALWART" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="LIFE,DEFENSE" mult="9" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="STALWART" mult="100000000" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0015" id="Swiftblade Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE,SWIFTBLADE" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="DEXTERITY,SPEED" mult="9" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="SWIFTBLADE" mult="100000000" />
+  </EnchantmentList>
+  <EnchantmentList type="0x002a" id="AOO Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="ATTACK,DEXTERITY" mult="7" />
+    <ModifyEnchantmentWeight id="NIGHTMATTER_SOUL" mult="60" />
+    <ModifyEnchantmentWeight id="NIGHTMATTER_WISDOM" mult="60" />
+    <ModifyEnchantmentWeight id="NIGHTMATTER_STRENGTH" mult="60" />
+    <ModifyEnchantmentWeight id="NIGHTMATTER_TENACITY" mult="60" />
+  </EnchantmentList>
+  <EnchantmentList type="0x002b" id="Permafrost Snowflake Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="LIFE,MANA" mult="0" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="VITALITY,WISDOM,RECOVERY,ENERGIZED,HEALING" mult="4" />
+    <ModifyEnchantmentWeight id="FREEZING_REGENERATION" mult="45" />
+    <ModifyEnchantmentWeight id="PERMAFROST_MAGIC" mult="45" />
+    <ModifyEnchantmentWeight id="ETERNAL_RESTORATION" mult="45" />
+  </EnchantmentList>
+  <EnchantmentList type="0x002c" id="Freezing Core Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="SPEED,DEXTERITY,BERSERK,WEAPONFIRERATE" mult="0" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="DEFENSE,DAMAGERESISTANCE,ARMORED" mult="4" />
+    <ModifyEnchantmentWeight id="RAZOR_SHARDS" mult="45" />
+    <ModifyEnchantmentWeight id="FROST_BARRIER" mult="45" />
+    <ModifyEnchantmentWeight id="SNOW_GOLEMS" mult="45" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0016" id="Glorious Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE,GLORIOUS" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="ATTACK,DURABILITY" mult="9" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="GLORIOUS" mult="100000000" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0017" id="Insightful Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE,INSIGHTFUL" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="WISDOM,CASTING" mult="9" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="INSIGHTFUL" mult="100000000" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0018" id="Soul Collector Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE,SOULCOLLECTOR" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="WISDOM,ATTACK,DEXTERITY" mult="4.5" />
+    <ModifyEnchantmentWeight id="HALLOWEEN_WEAPON_SOUL_COLLECTOR" mult="100000000" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0019" id="Naughty Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE,ORYXMAS2023" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="LIFE,MANA" mult="9" />
+    <ModifyEnchantmentWeight id="ORYXMAS_WEAPON_NAUGHTY" mult="100000000" />
+  </EnchantmentList>
+  <EnchantmentList type="0x001c" id="Nice Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE,ORYXMAS2023" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="LIFE,MANA" mult="9" />
+    <ModifyEnchantmentWeight id="ORYXMAS_WEAPON_NICE" mult="100000000" />
+  </EnchantmentList>
+  <EnchantmentList type="0x001d" id="Warm and Cozy Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE,ORYXMAS2023" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="LIFE,MANA" mult="9" />
+    <ModifyEnchantmentWeight id="ORYXMAS_ABILITY_WARM_AND_COZY" mult="100000000" />
+  </EnchantmentList>
+  <EnchantmentList type="0x001e" id="Polar Explorer Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE,ORYXMAS2023" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="LIFE,MANA" mult="9" />
+    <ModifyEnchantmentWeight id="ORYXMAS_ABILITY_POLAR_EXPLORER" mult="100000000" />
+  </EnchantmentList>
+  <EnchantmentList type="0x001b" id="Stellar Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE,STELLARASCEND" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="ATTACK,WISDOM,SPEED" mult="9" />
+    <ModifyEnchantmentWeight id="STELLAR_ASCEND" mult="100000000" />
+  </EnchantmentList>
+  <EnchantmentList type="0x001f" id="Thankful Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE,THANKSGIVING" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="ATTACK,VITALITY" mult="9" />
+    <ModifyEnchantmentWeight id="THANNKSGIVING_THANKFUL" mult="100000000" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0020" id="Giver Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE,THANKSGIVING" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="ATTACK,VITALITY" mult="9" />
+    <ModifyEnchantmentWeight id="THANNKSGIVING_GIVER" mult="100000000" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0021" id="Ice Rush Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE,FROST" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="DEFENSE,SPEED" mult="9" />
+    <ModifyEnchantmentWeight id="ORYXMAS_ICE_RUSH" mult="100000000" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0022" id="Frozen Blast Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE,FROST" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="DEFENSE,SPEED" mult="9" />
+    <ModifyEnchantmentWeight id="ORYXMAS_FROZEN_BLAST" mult="100000000" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0023" id="Snowstorm Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE,FROST" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="DEFENSE,SPEED" mult="9" />
+    <ModifyEnchantmentWeight id="ORYXMAS_SNOWSTORM" mult="100000000" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0024" id="Cool Protection Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE,FROST" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="DEFENSE,SPEED" mult="9" />
+    <ModifyEnchantmentWeight id="ORYXMAS_COOL_PROTECTION" mult="100000000" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0025" id="Adonis' Shot Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE,VALENTINES" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="LIFE,VIALITY" mult="9" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="ADONIS" mult="100000000" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0026" id="Aphrodite's Shot Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE,VALENTINES" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="LIFE,VIALITY" mult="9" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="APHRODITE" mult="100000000" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0027" id="Rose Thorns Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE,VALENTINES" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="LIFE,VIALITY" mult="9" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="ROSETHORNS" mult="100000000" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0028" id="Eggsposing Shot Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE,EASTER" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="ATTACK,WISDOM,SPEED" mult="9" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="EASTER" mult="100000000" />
+  </EnchantmentList>
+  <EnchantmentList type="0x0029" id="Hydroshock Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE,HYDROFLOW" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="ATTACK,WISDOM" mult="9" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="HYDROFLOW" mult="100000000" />
+  </EnchantmentList>
+  <EnchantmentList type="0xff00" id="Test T4 Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE" excludeLabelsOR="TIER1,TIER2,TIER3" />
+  </EnchantmentList>
+  <EnchantmentList type="0xff01" id="Test Awakened Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="AWAKENED" mult="9999.0" />
+  </EnchantmentList>
+  <EnchantmentList type="0xff02" id="Test Unique Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="UNIQUE" mult="9999.0" />
+  </EnchantmentList>
+  <EnchantmentList type="0xff03" id="Night Prince Engraving Pool">
+    <EnchantmentEntryLabel includeLabelsOR="ROLLABLE" excludeLabelsOR="TIER1,TIER2,TIER3" />
+    <EnchantmentEntry id="NIGHT_PRINCE_ENGRAVING" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="UNIQUE" mult="999" />
+    <ModifyEnchantmentWeightLabel includeLabelsOR="AWAKENED" mult="9999" />
+    <ModifyEnchantmentWeight id="NIGHT_PRINCE_ENGRAVING" increment="100000000" />
+  </EnchantmentList>
+</EnchantmentLists>

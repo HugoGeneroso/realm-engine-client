@@ -5,6 +5,9 @@ import {
   readPosition,
 } from '../src/native/rotmg-shared.js';
 import { sendDllFeature } from '../src/bridge/DllFeatureBus.js';
+import { createCombatMapArmer, mapNameFromPacket, isHubMap } from '../src/plugins/combat-map-arm.js';
+import { installCombatWireEnemies } from '../src/plugins/combat-wire-enemies.js';
+import { installCombatProxyAim } from '../src/plugins/combat-proxy-aim.js';
 
 /**
  * Auto-aim: enable/mode are driven over the DLL pipe.
@@ -18,9 +21,18 @@ export function register(ctx: PluginContext) {
   let loggedBridgeTelemetry = false;
 
   let aimModeIdx = 0;
+  let _lastWireStatsMs = 0;
+  function isDllAimActive(): boolean {
+    return ctx.enabled && combatArm.isInCombatMap() && combatArm.isArmed();
+  }
+  /** Proxy redirect — no 4s settle; server packet is the source of truth for aim. */
+  function isProxyAimActive(): boolean {
+    return ctx.enabled && combatArm.isInCombatMap();
+  }
+
   function syncControlState() {
     sendDllFeature('autoAimMode', aimModeIdx);
-    sendDllFeature('autoAimEnabled', ctx.enabled);
+    sendDllFeature('autoAimEnabled', isDllAimActive());
   }
 
   function syncProjectileNoclipState(forceOff = false) {
@@ -70,9 +82,52 @@ export function register(ctx: PluginContext) {
     syncProjectileNoclipState();
   });
 
+  function syncMenuSafeState() {
+    sendDllFeature('autoAimEnabled', false);
+    syncProjectileNoclipState(true);
+  }
+
+  const combatArm = createCombatMapArmer({
+    arm: () => syncAllDllState(),
+    disarm: () => syncMenuSafeState(),
+    settleMs: 0,
+    requireWirePlayer: true,
+  });
+
+  installCombatWireEnemies(ctx, () => ctx.enabled && combatArm.isInCombatMap());
+  installCombatProxyAim(ctx, () => isProxyAimActive());
+
   ctx.onEnabledChange((enabled) => {
-    syncControlState();
-    syncProjectileNoclipState(!enabled);
+    combatArm.onEnabledChange(enabled);
+    if (enabled && combatArm.isInCombatMap()) {
+      syncAimModeIdx();
+      syncControlState();
+      syncFilterState();
+    } else if (!enabled) {
+      syncMenuSafeState();
+    }
+  });
+
+  ctx.registerDllResync(() => {
+    if (!ctx.enabled) {
+      syncMenuSafeState();
+      return;
+    }
+    if (combatArm.isInCombatMap()) {
+      syncAllDllState();
+    } else {
+      syncMenuSafeState();
+    }
+  });
+
+  ctx.on('clientDisconnected', () => {
+    sendDllFeature('clientDefense', DEFENSE_UNSET);
+    sendDllFeature('clientClassType', 0);
+    sendDllFeature('clientHp', 0);
+    sendDllFeature('clientMaxHp', 0);
+    sendDllFeature('clientObjectId', 0);
+    syncProjectileNoclipState(true);
+    combatArm.onDisconnect();
   });
 
   let posTimer: ReturnType<typeof setInterval> | null = null;
@@ -103,20 +158,53 @@ export function register(ctx: PluginContext) {
     return opened;
   }
 
+  let _lastAimSyncMs = 0;
   ctx.hookPacket('NEWTICK', (client, packet) => {
     if (!packet.isDefined) return;
     const pd = client.playerData;
     const def = pd.defense + pd.defenseBonus;
     const cls = pd.classType ?? 0;
-    syncControlState();
     if (!loggedBridgeTelemetry) {
       loggedBridgeTelemetry = true;
       // #region agent log
       // #endregion
     }
     if (!posTimer && tryOpenTelemetry()) startPosPoll();
-    sendDllFeature('clientDefense', def);
-    sendDllFeature('clientClassType', cls);
+    const now = Date.now();
+    if (now - _lastWireStatsMs >= 300) {
+      _lastWireStatsMs = now;
+      sendDllFeature('clientDefense', def);
+      sendDllFeature('clientClassType', cls);
+      sendDllFeature('clientMaxHp', pd.maxHealth);
+      sendDllFeature('clientHp', pd.health > 0 ? pd.health : pd.maxHealth);
+      if (client.objectId > 0) sendDllFeature('clientObjectId', client.objectId);
+      const pos = pd.pos;
+      if (pos && Number.isFinite(pos.x) && Number.isFinite(pos.y)) {
+        sendDllFeature('clientPosX', pos.x);
+        sendDllFeature('clientPosY', pos.y);
+      }
+    }
+    combatArm.onNewTick(client, ctx.enabled);
+
+    if (ctx.enabled && combatArm.isArmed() && now - _lastAimSyncMs >= 500) {
+      _lastAimSyncMs = now;
+      syncControlState();
+    }
+  });
+
+  ctx.hookPacket('MAPINFO', (_client, packet) => {
+    try {
+      if (!packet.isDefined) return;
+      const mapName = mapNameFromPacket(packet);
+      combatArm.onMapInfo(mapName, ctx.enabled);
+      if (ctx.enabled && !isHubMap(mapName)) {
+        syncAimModeIdx();
+        syncFilterState();
+        if (combatArm.isArmed()) syncControlState();
+      }
+    } catch (err) {
+      ctx.log('MAPINFO hook error: ' + (err as Error).message);
+    }
   });
 
   function syncFilterState() {
@@ -124,18 +212,13 @@ export function register(ctx: PluginContext) {
     sendDllFeature('autoAimIgnoreWalls', ctx.getSetting<boolean>('ignoreWalls'));
   }
 
-  ctx.on('clientConnected', () => {
+  function syncAllDllState() {
     syncAimModeIdx();
     syncControlState();
     syncFilterState();
     syncProjectileNoclipState();
     if (tryOpenTelemetry()) startPosPoll();
-  });
-  ctx.on('clientDisconnected', () => {
-    sendDllFeature('clientDefense', DEFENSE_UNSET);
-    sendDllFeature('clientClassType', 0);
-    syncProjectileNoclipState(true);
-  });
+  }
 
   ctx.registerCleanup(() => {
     if (posTimer) {
@@ -147,6 +230,11 @@ export function register(ctx: PluginContext) {
     syncProjectileNoclipState(true);
     sendDllFeature('clientDefense', DEFENSE_UNSET);
     sendDllFeature('clientClassType', 0);
+    sendDllFeature('clientHp', 0);
+    sendDllFeature('clientMaxHp', 0);
+    sendDllFeature('clientObjectId', 0);
+    sendDllFeature('clientPosX', 0);
+    sendDllFeature('clientPosY', 0);
     // Do not unmap shared memory — auto-dodge / auto-ability may still be using it.
   });
 }

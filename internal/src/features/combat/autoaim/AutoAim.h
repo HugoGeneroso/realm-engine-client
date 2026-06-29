@@ -64,6 +64,18 @@ bool    HasTarget();
 void    GetAimTarget(float& outX, float& outY);
 int32_t GetAimFocusEnemyId();
 
+struct DiagView {
+    bool    aimRequested = false;
+    bool    hooksInstalled = false;
+    bool    hasTarget = false;
+    int     enemyCount = 0;
+    int     podCount = 0;
+    float   aimX = 0.f, aimY = 0.f;
+    uint64_t csaCalls = 0, csaRedirect = 0;
+    uint64_t swaCalls = 0, swaRedirect = 0;
+};
+DiagView GetDiagView();
+
 const WeaponProfile& GetWeaponProfile();
 
 // ── Projectile spawn callback ─────────────────────────────────────────────────

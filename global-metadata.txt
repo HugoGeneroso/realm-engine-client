@@ -1,0 +1,4 @@
+Last Updated: 2026-06-09T12:57:19.217Z
+Version: 2e2d3df040d9975796316cb5bb7e1f09
+Game Version: 6.11.0.1.0
+File Size: 17377436 bytes

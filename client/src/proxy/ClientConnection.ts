@@ -47,6 +47,10 @@ export class ClientConnection {
   pendingTeleportTargetObjectId: number | null = null;
   originalTargetIp = ''; // Set by Proxy from DLL temp file
   clientId = '';         // Unique ID assigned by Proxy on connect
+  /** When true, the next server-socket close is expected (RECONNECT) — do not dispose the client socket. */
+  expectServerDisconnect = false;
+  /** Set when MAPINFO arrives — used to diagnose early disconnects. */
+  receivedMapInfo = false;
 
   // Accumulated data for each direction
   private clientAccum = Buffer.alloc(0);
@@ -120,6 +124,7 @@ export class ClientConnection {
 
     this._pendingHello = helloPacket;
     this._serverResponded = false;
+    this.receivedMapInfo = false;
     this.serverConnecting = true;
     this.pendingServerQueue = [];
 
@@ -128,7 +133,7 @@ export class ClientConnection {
 
     this.serverSocket.on('data', (data) => this.onServerData(data));
     this.serverSocket.on('error', (err) => this.onError('server', err));
-    this.serverSocket.on('close', () => this.dispose());
+    this.serverSocket.on('close', () => this.onServerSocketClose());
 
     const key = helloPacket.data.key;
     Logger.log('Client', `Connecting to ${this.state.conTargetAddress}:${this.state.conTargetPort}...`);
@@ -234,10 +239,35 @@ export class ClientConnection {
     return this._lagQueue.reduce((sum, item) => sum + item.rawBytes.length, 0);
   }
 
+  /** Mark that the game server will drop its TCP connection as part of a RECONNECT flow. */
+  prepareForClientReconnect(): void {
+    this.expectServerDisconnect = true;
+  }
+
+  private onServerSocketClose(): void {
+    if (this.expectServerDisconnect) {
+      this.expectServerDisconnect = false;
+      this.serverSocket = null;
+      Logger.debug('reconnect', 'Client', 'Server socket closed (expected RECONNECT) — keeping client socket alive');
+      return;
+    }
+    this.dispose();
+  }
+
   /** Clean up both connections. */
   dispose(): void {
     if (this.closed) return;
     Logger.debug('proxy', 'Client', `[DIAG-dispose] called — stack: ${(new Error().stack ?? '').split('\n').slice(1, 5).join(' | ').trim()}`);
+
+    if (!this.receivedMapInfo && this._pendingHello) {
+      const ms = this.serverConnectedAt > 0 ? Date.now() - this.serverConnectedAt : 0;
+      if (!this._serverResponded) {
+        Logger.warn('Client', `Disconnected before server responded to HELLO${ms ? ` (${ms}ms after TCP connect)` : ''} — server may be down or rejecting the session`);
+      } else {
+        Logger.warn('Client', `Server closed connection after HELLO but before MAPINFO${ms ? ` (${ms}ms)` : ''} — wrong server IP, expired key, or duplicate login`);
+      }
+    }
+
     this.closed = true;
 
     if (this._helloRetryTimer) {
@@ -268,7 +298,6 @@ export class ClientConnection {
       socket.write(data);
     } catch (err) {
       Logger.error('Client', `Send error (${toClient ? 'client' : 'server'})`, err as Error);
-      this.dispose();
     }
   }
 
@@ -278,9 +307,6 @@ export class ClientConnection {
       const cipher = toClient ? this.clientSendCipher : this.serverSendCipher;
       const socket = toClient ? this.clientSocket : this.serverSocket;
 
-      // Buffer packets heading to server while it's still connecting.
-      // Without this, packets arriving during the ~50ms async TCP connect window
-      // get silently dropped, desyncing the RC4 cipher and corrupting all traffic.
       if (!toClient && this.serverConnecting) {
         const copy = Buffer.from(rawBytes);
         cipher.cipher(copy);
@@ -293,13 +319,11 @@ export class ClientConnection {
         return;
       }
 
-      // Make a copy so we don't corrupt the original rawBytes
       const copy = Buffer.from(rawBytes);
       cipher.cipher(copy);
       socket.write(copy);
     } catch (err) {
       Logger.error('Client', `ForwardRaw error (${toClient ? 'client' : 'server'})`, err as Error);
-      this.dispose();
     }
   }
 
@@ -350,73 +374,72 @@ export class ClientConnection {
     if (isClient) this.clientAccum = accumRef;
     else this.serverAccum = accumRef;
 
-    try {
-      while (true) {
-        const accum = isClient ? this.clientAccum : this.serverAccum;
-        if (accum.length < 4) break; // Need at least 4 bytes for length
+    const processSinglePacket = (): boolean => {
+      const accum = isClient ? this.clientAccum : this.serverAccum;
+      if (accum.length < 4) return false;
 
-        // Read packet length from first 4 bytes (big-endian)
-        const packetLength = accum.readInt32BE(0);
+      const packetLength = accum.readInt32BE(0);
 
-        if (packetLength <= 0 || packetLength > 1_048_576) {
-          Logger.warn('Client', `Invalid packet length: ${packetLength}, disconnecting`);
-          this.dispose();
-          return;
-        }
+      if (packetLength <= 0 || packetLength > 1_048_576) {
+        Logger.warn('Client', `Invalid packet length: ${packetLength}, disconnecting`);
+        this.dispose();
+        return false;
+      }
 
-        if (accum.length < packetLength) break; // Wait for more data
+      if (accum.length < packetLength) return false;
 
-        // Extract the complete packet
-        const rawPacket = Buffer.alloc(packetLength);
-        accum.copy(rawPacket, 0, 0, packetLength);
+      const rawPacket = Buffer.alloc(packetLength);
+      accum.copy(rawPacket, 0, 0, packetLength);
 
+      const remaining = accum.subarray(packetLength);
+      const nextAccum = Buffer.from(remaining);
+      if (isClient) this.clientAccum = nextAccum;
+      else this.serverAccum = nextAccum;
 
-        // Remove from accumulator
-        const remaining = accum.subarray(packetLength);
-        const nextAccum = Buffer.from(remaining);
-        if (isClient) this.clientAccum = nextAccum;
-        else this.serverAccum = nextAccum;
+      cipher.cipher(rawPacket);
 
-        // Decrypt the body (skip 5-byte header)
-        cipher.cipher(rawPacket);
+      let packet;
+      try {
+        packet = this.proxy.packetFactory.createFromBytes(rawPacket);
+      } catch (err) {
+        Logger.error('Client', `Packet parse error`, err as Error);
+        return true;
+      }
 
-        // Parse the packet
-        const packet = this.proxy.packetFactory.createFromBytes(rawPacket);
+      if (!isClient && packet.name === 'FAILURE' && packet.isDefined) {
+        Logger.warn('Client', `[DIAG-FAILURE] errorId=${packet.data.errorId} errorMessage="${packet.data.errorMessage}"`);
+      }
 
-        // Log any server FAILURE packet so rejection reasons are visible.
-        if (!isClient && packet.name === 'FAILURE' && packet.isDefined) {
-          Logger.warn('Client', `[DIAG-FAILURE] errorId=${packet.data.errorId} errorMessage="${packet.data.errorMessage}"`);
-        }
-
-        // Fire hooks
+      try {
         if (isClient) {
           this.proxy.fireClientPacket(this, packet);
         } else {
           this.proxy.fireServerPacket(this, packet);
         }
+      } catch (err) {
+        Logger.error('Client', `Packet hook error for ${packet.name}`, err as Error);
+        return true;
+      }
 
-        // Forward if not blocked
-        if (packet.send) {
-          // Resolve to plaintext bytes: use re-serialization only if explicitly modified
-          // via data fields. If a hook patched rawBytes directly (raw-byte patching for
-          // update resilience), packet.rawBytes differs from rawPacket — use it.
+      if (packet.send) {
+        try {
           const plainBytes = packet.modified
             ? this.proxy.packetFactory.serialize(packet)
             : packet.rawBytes !== rawPacket ? packet.rawBytes : rawPacket;
 
           if (this.lagMode) {
-            // Lag is active — queue for later flush
             this._lagQueue.push({ rawBytes: Buffer.from(plainBytes), toClient: !isClient });
           } else {
-            // Normal path — re-encrypt and send
             this.forwardRaw(plainBytes, !isClient);
           }
+        } catch (err) {
+          Logger.error('Client', `Packet forward error for ${packet.name}`, err as Error);
         }
       }
-    } catch (err) {
-      Logger.error('Client', `Process error (${isClient ? 'client' : 'server'})`, err as Error);
-      this.dispose();
-    }
+      return true;
+    };
+
+    while (processSinglePacket()) {}
   }
 
   // Note: packet assembly still compacts by materializing remaining bytes so
@@ -427,8 +450,16 @@ export class ClientConnection {
     const code = (err as any).code as string | undefined;
     Logger.debug('proxy', 'Client', `[DIAG-onError] source=${source} code=${code ?? 'n/a'} message=${err.message}`);
 
-    // ECONNRESET / EPIPE are normal disconnect signals — just clean up
+    // ECONNRESET / EPIPE are normal disconnect signals — retry if HELLO never got a reply
     if (code === 'ECONNRESET' || code === 'EPIPE') {
+      if (source === 'server' && !this._serverResponded && this._pendingHello
+          && this._helloRetryCount < ClientConnection.HELLO_MAX_RETRIES) {
+        this._helloRetryCount++;
+        this._helloIsRetrying = true;
+        Logger.warn('Client', `Server reset before HELLO response (${code}) — retry ${this._helloRetryCount}/${ClientConnection.HELLO_MAX_RETRIES}`);
+        this.connectToServer(this._pendingHello);
+        return;
+      }
       this.dispose();
       return;
     }

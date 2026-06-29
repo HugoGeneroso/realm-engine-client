@@ -11,7 +11,7 @@
 
   > **TL;DR:** A full RotMG hack stack — Electron client, IL2CPP DLL injector, and TypeScript SDK — published free and open source. Clone it, fork it, sell your own builds.
 
-  🌐 **Site:** [realmengine.org](https://realmengine.org)  ·  💬 **Discord:** [discord.gg/CGuYyTbf](https://discord.gg/CGuYyTbf)  ·  ⬇️ **Download:** [realmengine.org/download](https://realmengine.org/download)
+  🌐 **Site:** [realmengine.org](https://realmengine.org)  ·  💬 **Discord:** [discord.gg/CGuYyTbf](https://discord.gg/uEKPPWz9k4)  ·  ⬇️ **Download:** [realmengine.org/download](https://realmengine.org/download)
 
   ---
 

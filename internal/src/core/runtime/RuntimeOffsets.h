@@ -30,9 +30,75 @@ namespace RuntimeOffsets {
 
     // True once the 5 s give-up timeout has fired.
     bool HasGivenUp();
+    // True once resolution has SETTLED — every entry either resolved its class
+    // (happy path, before the timeout) or was given up (stale path, at the
+    // timeout). The single "name pass is done" signal the BootGate audits on.
+    bool AllResolved();
     // Comma-separated class names that could not be resolved before give-up.
     // Empty string if every class resolved successfully.
     const char* GetUnresolvedClassNames();
+
+    // ── Offset health report (in-GUI panel + diagnostics) ────────────────────
+    // Per-offset resolution status, so a stale / BeeByte-renamed offset is
+    // visible at a glance instead of silently falling back to a hardcoded value.
+    enum class OffsetState : uint8_t {
+        Pending,           // class not resolved yet (still retrying)
+        ResolvedMatch,     // resolved from live metadata, == fallback (healthy)
+        ResolvedShifted,   // resolved from live metadata, != fallback (auto-corrected a stale fallback)
+        FallbackFieldName, // class found but field NAME not found (BeeByte renamed -> STALE fallback)
+        FallbackGaveUp,    // class never resolved before timeout -> STALE fallback
+        Suspect,           // value failed a live sanity check (resolved-to-wrong-field or stale)
+    };
+    struct OffsetReportRow {
+        const char* className;
+        const char* fieldName;
+        uint32_t    fallback;   // the hardcoded fallback value
+        uint32_t    value;      // the value currently in use
+        OffsetState state;
+    };
+    // Fills `out` with up to `maxRows` rows; returns the TOTAL offset count.
+    int  GetOffsetReport(OffsetReportRow* out, int maxRows);
+    // Health tallies across all offsets.
+    void GetOffsetSummary(int& resolved, int& usingFallback, int& suspect, int& pending);
+    // Flag a specific offset variable SUSPECT from a live sanity check.
+    void MarkSuspect(const uint32_t* offsetVar);
+
+    // Live sanity checks: validate the critical offsets against plausible ranges
+    // and MarkSuspect any that read CLEAR garbage (a stale offset usually reads a
+    // wildly out-of-range int). The caller passes the live values it already has,
+    // so this stays decoupled from the read path. Catches the silent
+    // stale-defense / stale-damage case behind over-estimated damage.
+    void SanityCheckPlayerStats(int32_t hp, int32_t maxHp, int32_t defense);
+    void SanityCheckProjDamage(int32_t sampledDamage);
+
+    // ── Structural auto-recovery (Phase 1 / A1) ──────────────────────────────
+    // Identify renamed classes by stable STRUCTURE (type-anchor), not name, so a
+    // BeeByte rename after a game patch self-heals. Runs the il2cpp metadata scan
+    // at most once; cheap to call repeatedly. Returns the number of classes freshly
+    // recovered. Invoked from the BootGate Discovery state.
+    int AutoResolveByStructure();
+    // Expensive il2cpp_class_for_each scan — never call from dPresent; fire once on a worker.
+    void KickAsyncStructuralScan();
+    // The projectile instance class recovered above — the class that holds a field
+    // of type ProjectileProperties (a relationship BeeByte cannot rename away).
+    // nullptr until recovered; ProjectileTracking consults this before its
+    // name-based lookup so bullets are captured again with no dump, every patch.
+    Il2CppClass* GetRecoveredProjClass();
+
+    // A4: recover renamed classes from a LIVE OBJECT (player ptr, WorldManager ptr,
+    // any entity) via il2cpp_object_get_class + its parent chain — the gold-standard
+    // rung. Re-resolves ONLY currently-broken entries (class never resolved) against
+    // the live class; healthy offsets are untouched. Returns the number healed.
+    // The caller supplies the instance (keeps this free of LocalPlayer/GameState deps).
+    int RecoverFromInstance(void* instance);
+
+    // Phase-2 write-back: resolve field offsets from a recovered IL2CPP class
+    // (structural scan or Beebyte map) when EnsureAll gave up before lazy-load.
+    int HealEntriesFromClassMetadata(Il2CppClass* klass);
+
+    // A4 tile chain: heal BGAIOPJMHLO from a live tile instance, then read its
+    // (now-correct) TileProps pointer and heal CMFPKCJHKKB. Returns # healed.
+    int RecoverTileChain(void* tileInstance);
 
     // ── Cached FieldInfo pointers ─────────────────────────────────────────────
     // Non-null once EnsureAll() has seen the owning class in IL2CPP metadata.

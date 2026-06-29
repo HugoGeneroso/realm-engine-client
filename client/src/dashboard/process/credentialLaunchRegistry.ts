@@ -14,6 +14,8 @@ export type CredentialLaunchRecord = {
   accountLabel: string | null;
   /** Normalized email from the launch request (correlation / debugging) */
   emailNormalized: string;
+  /** Server selected in the dashboard launch UI (e.g. USWest). */
+  serverName: string | null;
   pidLauncher: number;
   pidUnity: number | null;
   launchedAtMs: number;
@@ -40,6 +42,8 @@ export function registerCredentialLaunch(params: {
   email: string;
   /** Dashboard UI label for the account — optional */
   accountLabel?: string | null;
+  /** Server name from the dashboard launch UI (e.g. USWest). */
+  serverName?: string | null;
 }): void {
   const launcherPid = Math.floor(Number(params.launcherPid));
   if (!Number.isFinite(launcherPid) || launcherPid <= 0) return;
@@ -58,6 +62,10 @@ export function registerCredentialLaunch(params: {
     accountId,
     accountLabel,
     emailNormalized,
+    serverName:
+      typeof params.serverName === 'string' && params.serverName.trim() !== ''
+        ? params.serverName.trim()
+        : null,
     pidLauncher: launcherPid,
     pidUnity: null,
     launchedAtMs: Date.now(),

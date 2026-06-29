@@ -4,6 +4,7 @@
 #include "XDodge.h"
 #include "RolloutDodge.h"
 #include "ZDodge.h"
+#include "RePP.h"
 #include "DbgFileLog.h"
 #include "SteerInput.h"
 #include "GhostHit.h"
@@ -573,8 +574,47 @@ void OnHazardSpawn(const WorldProjectile& /*p*/, void*)
 // preempts on imminent danger). Pure algorithm; the game-move path is
 // untouched. Off (s_lockFollowEnabled) ⇒ no movement effect = today.
 // ─────────────────────────────────────────────────────────────────────────────
+static void ResolveFollowPlayer(float px, float py)
+{
+    const int32_t id = s_followPlayerId.load(std::memory_order_relaxed);
+    if (id == 0) return;
+
+    WorldTAB::ForceRefresh();
+
+    bool  found = false;
+    float tx = 0.f, ty = 0.f;
+    const auto& ents = WorldTAB::GetEntities();
+    for (const WorldEntity& e : ents) {
+        if (e.objectId != id) continue;
+        tx = e.x;
+        ty = e.y;
+        found = true;
+        s_followLastX.store(tx, std::memory_order_relaxed);
+        s_followLastY.store(ty, std::memory_order_relaxed);
+        s_followHaveLast.store(true, std::memory_order_relaxed);
+        break;
+    }
+    if (!found && s_followHaveLast.load(std::memory_order_relaxed)) {
+        tx = s_followLastX.load(std::memory_order_relaxed);
+        ty = s_followLastY.load(std::memory_order_relaxed);
+        found = (tx != 0.f || ty != 0.f);
+    }
+    if (!found) return;
+
+    const float dx = tx - px, dy = ty - py;
+    const float d  = std::sqrt(dx * dx + dy * dy);
+    if (d < 1.5f) {
+        s_extGoalActive.store(false, std::memory_order_release);
+        return;
+    }
+    s_extGoalX.store(tx, std::memory_order_relaxed);
+    s_extGoalY.store(ty, std::memory_order_relaxed);
+    s_extGoalActive.store(true, std::memory_order_release);
+}
+
 static void ResolveEnemyLock(float px, float py)
 {
+    if (s_followPlayerId.load(std::memory_order_relaxed) != 0) return;
     if (!s_lockFollowEnabled.load(std::memory_order_relaxed)) return;
 
     const int32_t id = s_lockEnemyId.load(std::memory_order_relaxed);
@@ -700,6 +740,37 @@ static void ResolveEnemyLock(float px, float py)
     s_lockLastResolved.store(true, std::memory_order_release);
 }
 
+// MSVC: __try/__except must live in functions without C++ locals that unwind.
+static bool SafeRePPTick(void* player, float px, float py, float dt)
+{
+    __try { RePP::Tick(player, px, py, dt); return true; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+static bool SafeZDodgeTick(void* player, float px, float py, float dt)
+{
+    __try { ZDodge::Tick(player, px, py, dt); return true; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+static bool SafeRolloutDodgeTick(void* player, float px, float py, float dt)
+{
+    __try { RolloutDodge::Tick(player, px, py, dt); return true; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+static bool SafeXDodgeTick(void* player, float px, float py, float dt)
+{
+    __try { XDodge::Tick(player, px, py, dt); return true; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+static bool SafeGhostHitTick(void* player, float px, float py)
+{
+    __try { GhostHit::Tick(player, px, py); return true; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
 using UpdateFn = void(__fastcall*)(void* __this, void* method);
 UpdateFn s_origUpdate = nullptr;
 void*    s_hookTarget = nullptr;
@@ -709,13 +780,16 @@ void __fastcall Detour_AppEngineUpdate(void* __this, void* method)
 {
     if (s_origUpdate) s_origUpdate(__this, method);
 
+    static bool s_loggedFirstTick = false;
+
     // Two dodge engines run from this hook (mutually exclusive): XDodge
     // (spacetime BFS/A*) and RolloutDodge (forward input-simulation). They
     // share the preamble, goal plumbing, and GhostHit safety net below.
     const bool xdodgeOn  = XDodge::IsEnabled();
     const bool rolloutOn = RolloutDodge::IsEnabled();
     const bool zaclinOn = ZDodge::IsEnabled();
-    if (xdodgeOn || rolloutOn || zaclinOn) {
+    const bool reppOn   = RePP::IsEnabled();
+    if (xdodgeOn || rolloutOn || zaclinOn || reppOn) {
         // Use GameState::GetLocalPtr() directly — the EXACT source AutoAim
         // uses (and AutoAim works). LocalPlayer::GetPtr() is a second-hand
         // mirror refreshed only by LocalPlayer::Tick() on the render thread
@@ -737,24 +811,81 @@ void __fastcall Detour_AppEngineUpdate(void* __this, void* method)
         float px = 0.f, py = 0.f;
         if (!ReadLivePlayerPosition(p, px, py))
             return;
+
+        if (!s_loggedFirstTick) {
+            s_loggedFirstTick = true;
+            DBG_FILE_LOG("[Dodge] Detour first tick mode="
+                << (reppOn ? "RePP" : zaclinOn ? "ZDodge" : rolloutOn ? "Rollout" : "XDodge")
+                << " pos=(" << px << "," << py << ")");
+        }
+
+        static ULONGLONG s_lastHeartbeatMs = 0;
+        const ULONGLONG hbNow = GetTickCount64();
+        if (hbNow - s_lastHeartbeatMs > 3000ULL) {
+            s_lastHeartbeatMs = hbNow;
+            DBG_FILE_LOG("[Dodge] Detour heartbeat xdodge=" << (int)xdodgeOn
+                << " rollout=" << (int)rolloutOn << " pos=(" << px << "," << py << ")");
+        }
+
         // SteerInput maintains the WASD release edge (cheap); it no longer
         // gates. ResolveEnemyLock publishes the lock/auto-lock standoff as the
         // shared external goal that dodge engines can consume.
         SteerInput::Tick();
+        ResolveFollowPlayer(px, py);
         ResolveEnemyLock(px, py);
-        if (zaclinOn)       ZDodge::Tick(p, px, py, dt);
-        else if (rolloutOn) RolloutDodge::Tick(p, px, py, dt);
-        else                XDodge::Tick(p, px, py, dt);
-        // GhostHit runs independently — a SAFETY net for bullets the game's
-        // own per-tick collision skipped. Cheap when off (one atomic load).
-        GhostHit::Tick(p, px, py);
+
+        static int s_lastFailPhase = -1;
+        bool ok = true;
+        if (reppOn)         ok = SafeRePPTick(p, px, py, dt);
+        else if (zaclinOn)  ok = SafeZDodgeTick(p, px, py, dt);
+        else if (rolloutOn) ok = SafeRolloutDodgeTick(p, px, py, dt);
+        else                ok = SafeXDodgeTick(p, px, py, dt);
+        if (!ok) {
+            const int phase = reppOn ? 4 : zaclinOn ? 3 : rolloutOn ? 2 : 1;
+            if (s_lastFailPhase != phase) {
+                s_lastFailPhase = phase;
+                DBG_FILE_LOG("[Dodge] Detour SEH: engine tick phase=" << phase
+                    << " (1=XDodge 2=Rollout 3=ZDodge 4=RePP)");
+            }
+        } else {
+            s_lastFailPhase = -1;
+        }
+
+        if (!SafeGhostHitTick(p, px, py)) {
+            static int s_ghN = 0;
+            if ((s_ghN++ % 120) == 0)
+                DBG_FILE_LOG("[Dodge] Detour SEH: GhostHit::Tick");
+        }
         return;
     }
+    s_loggedFirstTick = false;
 }
 
 } // namespace
 
 namespace DangerPlanner {
+
+namespace {
+    // Present-frame countdown before arming AppEngineManager::Update (~8s).
+    int s_deferInstallFrames = 0;
+    constexpr int kInstallDeferFrames = 480;
+} // namespace
+
+void RequestInstall()
+{
+    if (s_hookInstalled) return;
+    s_deferInstallFrames = kInstallDeferFrames;
+}
+
+void TickDeferredInstall()
+{
+    if (s_hookInstalled) return;
+    if (s_deferInstallFrames > 0) {
+        --s_deferInstallFrames;
+        return;
+    }
+    TryInstall();
+}
 
 void TryInstall()
 {
@@ -796,8 +927,12 @@ void TryInstall()
         DBG_FILE_LOG("[DangerPlanner] TryInstall: MH_CreateHook FAILED");
         return;
     }
-    if (MH_EnableHook(target) != MH_OK) {
-        DBG_FILE_LOG("[DangerPlanner] TryInstall: MH_EnableHook FAILED");
+    if (MH_QueueEnableHook(target) != MH_OK) {
+        DBG_FILE_LOG("[DangerPlanner] TryInstall: MH_QueueEnableHook FAILED");
+        return;
+    }
+    if (MH_ApplyQueued() != MH_OK) {
+        DBG_FILE_LOG("[DangerPlanner] TryInstall: MH_ApplyQueued FAILED");
         return;
     }
 

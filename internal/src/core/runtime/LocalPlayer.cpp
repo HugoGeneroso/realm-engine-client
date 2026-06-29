@@ -2,6 +2,7 @@
 #include "LocalPlayer.h"
 #include "GameState.h"
 #include "RuntimeOffsets.h"
+#include "FeatureState.h"
 #include "Il2CppResolver.h"
 #include "PlayerCollider.h"
 
@@ -67,28 +68,52 @@ static void ReadFromPtr()
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {}
 
+    // HP/MaxHP/Defense — prefer il2cpp_field_get_value (handles hierarchy + ACTK);
+    // fall back to raw offsets when FieldInfo isn't resolved yet.
+    bool statsFromField = false;
+    if (RuntimeOffsets::FI_HP && RuntimeOffsets::FI_MaxHP) {
+        int32_t hp = 0, maxHp = 0, def = 0;
+        if (RuntimeOffsets::ReadField(obj, RuntimeOffsets::FI_HP, hp))
+            s_hp = hp;
+        if (RuntimeOffsets::ReadField(obj, RuntimeOffsets::FI_MaxHP, maxHp))
+            s_maxHp = maxHp;
+        if (RuntimeOffsets::FI_Defense && RuntimeOffsets::ReadField(obj, RuntimeOffsets::FI_Defense, def))
+            s_defense = def;
+        statsFromField = (s_maxHp > 0);
+    }
+    if (!statsFromField) {
+        static void* s_lastRecoverPtr = nullptr;
+        if (s_ptr != s_lastRecoverPtr) {
+            RuntimeOffsets::RecoverFromInstance(s_ptr);
+            s_lastRecoverPtr = s_ptr;
+        }
+        __try {
+            uint8_t* p = reinterpret_cast<uint8_t*>(s_ptr);
+            s_hp      = *reinterpret_cast<int32_t*>(p + RuntimeOffsets::HP);
+            s_maxHp   = *reinterpret_cast<int32_t*>(p + RuntimeOffsets::MaxHP);
+            s_defense = *reinterpret_cast<int32_t*>(p + RuntimeOffsets::Defense);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+    // Proxy NEWTICK stats when memory reads stay at 0 (shifted/obfuscated fields).
+    if (s_maxHp <= 0) {
+        const int32_t wireMax = FeatureState::GetClientMaxHp();
+        if (wireMax > 0) s_maxHp = wireMax;
+    }
+    if (s_hp <= 0) {
+        const int32_t wireHp = FeatureState::GetClientHp();
+        if (wireHp > 0) s_hp = wireHp;
+    }
+
     if (s_consumers <= 0) return;
 
-    // Heavy stats — ObjType/MP/ability via FieldInfo (no ACTK issue for these classes)
+    // Heavier stats — ObjType/MP/ability via FieldInfo
     RuntimeOffsets::ReadField(obj, RuntimeOffsets::FI_ObjType,      s_objType);
     RuntimeOffsets::ReadField(obj, RuntimeOffsets::FI_CurMP,        s_curMpF);
     RuntimeOffsets::ReadField(obj, RuntimeOffsets::FI_MaxMP,        s_maxMp);
     RuntimeOffsets::ReadField(obj, RuntimeOffsets::FI_AbilityReady, s_abilityActive);
 
-    // HP/MaxHP/Defense — LKHPPBEGNOM own fields get +0x50 ACTK shift at runtime.
-    // il2cpp_field_get_value uses dump offsets, landing in ACTK-injected bytes.
-    // Must use direct raw reads with the runtime-resolved offsets instead.
-    __try {
-        uint8_t* p = reinterpret_cast<uint8_t*>(s_ptr);
-        s_hp      = *reinterpret_cast<int32_t*>(p + RuntimeOffsets::HP);
-        s_maxHp   = *reinterpret_cast<int32_t*>(p + RuntimeOffsets::MaxHP);
-        s_defense = *reinterpret_cast<int32_t*>(p + RuntimeOffsets::Defense);
-        // Note: DAGEMHFLJLK (GroundDmgImmune) and BINDBHJLPMG (LocalInvincible) are no longer
-        // read here. AbilityInCooldown is now derived entirely from DANCJNLCOFK below.
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER) {}
-
-    // Ability cooldown: DANCJNLCOFK returns FLT_MAX sentinel when on CD, positive seconds
+    // HP/MaxHP/Defense already read above (always-on path). DANCJNLCOFK returns FLT_MAX sentinel when on CD, positive seconds
     // when a numeric timer is available, or ≤0 when ready.
     // DAGEMHFLJLK (dump 0x458) is groundDamageImmune — it is NOT the cooldown flag.
     s_abilityInCooldown = false;
@@ -212,8 +237,20 @@ void Tick()
 
     s_ptr = newPtr;
 
-    if (s_ptr)
+    if (s_ptr) {
         ReadFromPtr();
+        if (FeatureState::GetGodModeEnabled()) {
+            __try {
+                *reinterpret_cast<bool*>(reinterpret_cast<uint8_t*>(s_ptr) + RuntimeOffsets::LocalInvincible) = true;
+            } __except (EXCEPTION_EXECUTE_HANDLER) {}
+        }
+    } else {
+        // No IL2CPP ptr yet (WM_Local lag) — still expose wire stats to gates/ImGui.
+        const int32_t wireMax = FeatureState::GetClientMaxHp();
+        const int32_t wireHp  = FeatureState::GetClientHp();
+        if (wireMax > 0) s_maxHp = wireMax;
+        if (wireHp > 0)  s_hp    = wireHp;
+    }
 
     PlayerCollider::Tick(s_ptr);
 
@@ -224,8 +261,16 @@ void Tick()
 void*   GetPtr()               { return s_ptr; }
 float   GetX()                 { return s_x; }
 float   GetY()                 { return s_y; }
-int32_t GetHP()                { return s_hp; }
-int32_t GetMaxHP()             { return s_maxHp; }
+int32_t GetHP() {
+    if (s_hp > 0) return s_hp;
+    const int32_t w = FeatureState::GetClientHp();
+    return w > 0 ? w : s_hp;
+}
+int32_t GetMaxHP() {
+    if (s_maxHp > 0) return s_maxHp;
+    const int32_t w = FeatureState::GetClientMaxHp();
+    return w > 0 ? w : s_maxHp;
+}
 int32_t GetDefense()           { return s_defense; }
 float   GetCurMpF()            { return s_curMpF; }
 int32_t GetMaxMP()             { return s_maxMp; }
