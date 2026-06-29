@@ -32,6 +32,7 @@ using TestTAB::DodgeMode;
 #include "FeatureState.h"
 #include "SpeedHack.h"
 #include "Noclip.h"
+#include "settings.h"
 #include "PlayerCollider.h"
 #include <imgui/imgui.h>
 
@@ -1175,6 +1176,25 @@ void TestTAB::Render()
 {
     ImGui::Spacing();
     ImGui::TextColored(ImVec4(1.f, 0.8f, 0.2f, 1.f), "TEST TOOLS");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    // ── Developer diagnostics / MCP bridge ────────────────────────────────────
+    // Runtime opt-in for the re-mcp diagnostics egress. Compiled in for everyone,
+    // dormant until flipped on here (settings.bEnableDiagBridge gates DiagBridge::Tick).
+    ImGui::TextColored(ImVec4(0.6f, 1.f, 0.7f, 1.f), "DIAGNOSTICS BRIDGE (MCP)");
+    ImGui::Checkbox("Enable diagnostics egress (MCP bridge)##diagbridge", &settings.bEnableDiagBridge);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("%s",
+            "Developer tool. Mirrors live BootGate / offset-recovery / dodge state to\n"
+            "%LOCALAPPDATA%\\RealmEngine\\*.json so the re-mcp server (internal/tools/re-mcp)\n"
+            "can runtime-test the DLL from an MCP client. Off = nothing is written.");
+    }
+    ImGui::TextDisabled("%s", settings.bEnableDiagBridge
+        ? "Writing %LOCALAPPDATA%\\RealmEngine\\{diag,cmd,resp}.json (~1 Hz)."
+        : "Off — no files written. Enable to use the re_* MCP tools.");
+
+    ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
 

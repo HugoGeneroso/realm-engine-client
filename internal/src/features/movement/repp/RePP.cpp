@@ -178,7 +178,7 @@ void SetEnabled(bool enabled)
 {
     if (enabled) ProjectileTracking::Install();
     g_enabled.store(enabled, std::memory_order_relaxed);
-    if (!enabled) ResetCommit();
+    if (!enabled) { ResetCommit(); PublishDebug(DebugSnapshot{}); }
 }
 bool IsEnabled() { return g_enabled.load(std::memory_order_relaxed); }
 

@@ -8,6 +8,7 @@
 #include "DbgFileLog.h"
 #include "RePP.h"
 #include "AutoAim.h"
+#include "settings.h"
 
 #include <Windows.h>
 #include <cstdio>
@@ -357,6 +358,30 @@ void WriteSnapshot(const char* dir) {
 } // namespace
 
 void Tick() {
+    // Runtime opt-in (Test tab → settings.bEnableDiagBridge). Off by default, so a
+    // normal user never touches %LOCALAPPDATA%\RealmEngine\*.json. The diag code is
+    // always compiled in — this gate just keeps it dormant until a dev enables it.
+    static bool s_prevEnabled = false;
+    if (!settings.bEnableDiagBridge) {
+        if (s_prevEnabled) {
+            // Just toggled off: remove stale files so the MCP server doesn't read a
+            // frozen snapshot as if the game were still live.
+            const char* d = DiagDir();
+            if (d) {
+                char p[MAX_PATH];
+                for (const char* fn : { "diag.json", "cmd.json", "resp.json" }) {
+                    snprintf(p, sizeof(p), "%s\\%s", d, fn);
+                    DeleteFileA(p);
+                }
+            }
+            s_lastSnapMs = 0;   // re-enabling writes a fresh snapshot immediately
+            s_lastCmdMs  = 0;
+            s_prevEnabled = false;
+        }
+        return;
+    }
+    s_prevEnabled = true;
+
     const char* dir = DiagDir();
     if (!dir) return;
     const ULONGLONG now = GetTickCount64();
