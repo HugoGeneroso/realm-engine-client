@@ -27,6 +27,7 @@ void* g_lastPlayer = nullptr;
 TrackedProperty g_tracked[kMaxObjectPropertiesTargets]{};
 size_t g_trackedCount = 0;
 uint32_t g_collisionMultiplierOffset = kOffCollisionMultiplierFallback;
+bool    g_collisionOffsetResolved = false;
 
 struct EntityCandidate {
     void* ptr = nullptr;
@@ -118,8 +119,12 @@ bool ResolveCollisionMultiplierOffset(void* properties)
     uint32_t offset = kOffCollisionMultiplierFallback;
     bool fromMetadata = false;
     ResolveFieldOffset(propertiesClass, "collisionRadiusMultiplier", kOffCollisionMultiplierFallback, offset, fromMetadata);
-    (void)fromMetadata;
     g_collisionMultiplierOffset = offset;
+    // Only write when the offset came from il2cpp reflection, not the hardcoded
+    // fallback. After a game update the fallback points at the wrong field and the
+    // per-frame WriteCollisionMultiplier corrupts ObjectProperties → Unity crash
+    // (UnityCrashHandler). Stay inert until the offset is re-resolved.
+    g_collisionOffsetResolved = fromMetadata;
     return true;
 }
 
@@ -331,6 +336,11 @@ void Tick(void* player)
     }
 
     if (propertyCount == 0)
+        return;
+
+    // Stay inert if the collision-multiplier offset couldn't be resolved — a stale
+    // fallback write corrupts the player's ObjectProperties and crashes Unity.
+    if (!g_collisionOffsetResolved)
         return;
 
     // Rebuild the tracking set: keep the captured original for objects we already

@@ -28,6 +28,12 @@ namespace RuntimeOffsets {
     // FindClassLoose is never called every frame indefinitely.
     void EnsureAll();
 
+    // Force one-time construction of the (large) Beebyte name map at a clean
+    // point during DLL init, instead of lazily on the dPresent hot path — its
+    // static unordered_map allocation/rehash was surfacing heap corruption as a
+    // crash inside RuntimeOffsets::EnsureAll -> MaybeRetryLazyGaveUpEntries.
+    void Warmup();
+
     // True once the 5 s give-up timeout has fired.
     bool HasGivenUp();
     // True once resolution has SETTLED — every entry either resolved its class

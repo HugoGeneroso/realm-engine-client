@@ -189,10 +189,7 @@ bool LiveReauditIfNeeded() {
 
 } // namespace
 
-State Tick() {
-    // RuntimeOffsets::EnsureAll() runs once per frame from dPresent (DirectX.cpp)
-    // before BootGate::Tick — do not call again here (doubled IL2CPP work per frame).
-
+State TickImpl() {
     switch (s_state) {
     case State::WaitingForMetadata:
         // Class metadata is available at process start (only instances are lazy),
@@ -276,6 +273,22 @@ State Tick() {
             }
         }
         break;
+    }
+    return s_state;
+}
+
+State Tick() {
+    // A stale game update can make an offset read or a downstream audit call AV.
+    // Never let one bad frame take down the process — swallow it and stay in the
+    // current state so the next frame can re-audit / recover. TickImpl keeps the
+    // real logic (incl. DBG_FILE_LOG); this wrapper is SEH-only and POD-clean so it
+    // compiles under /EHa without C2712 (no objects with destructors).
+    __try {
+        return TickImpl();
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        // DbgFileLogWrite (not DBG_FILE_LOG): DBG_FILE_LOG builds an ostringstream,
+        // which would trigger C2712 inside __try/__except.
+        DbgFileLogWrite("[BootGate] Tick: suppressed access violation (likely offset drift) — staying in current state, will retry next frame");
     }
     return s_state;
 }

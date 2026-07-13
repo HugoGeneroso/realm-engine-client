@@ -1,6 +1,6 @@
 #pragma once
 #include <string>
-#include <unordered_map>
+#include <vector>
 #include <regex>
 
 // Auto-generated from beebyte_rename_map.json
@@ -8,8 +8,8 @@
 
 namespace Beebyte {
 
-    inline const std::unordered_map<std::string, std::string>& GetMap() {
-        static const std::unordered_map<std::string, std::string> map = {
+    inline const std::vector<std::pair<std::string, std::string>>& GetMap() {
+        static const std::pair<const char*, const char*> raw[] = {
             {"AACAAKKMOAE", "ShopOrderingSetting"},
             {"AACEMINCCJG", "CustomDungeonIcon"},
             {"AACKPHBCNKK", "yoffset"},
@@ -3534,27 +3534,41 @@ namespace Beebyte {
             {"UNKNOWN", "FILE"},
             {"UPPERCASE", "SLASH_UPPERCASE"},
         };
+        static const std::vector<std::pair<std::string, std::string>> map = []{
+            std::vector<std::pair<std::string, std::string>> v;
+            v.reserve(sizeof(raw) / sizeof(raw[0]));
+            for (const auto& p : raw)
+                v.emplace_back(p.first, p.second);
+            return v;
+        }();
         return map;
     }
+
+    // Linear lookup over the static table (no hash table / no rehash).
+    inline const std::string* FindDeobf(const char* name) {
+        if (!name || !*name) return nullptr;
+        const auto& tbl = GetMap();
+        for (const auto& kv : tbl)
+            if (kv.first == name) return &kv.second;
+        return nullptr;
+}
 
     // Deobfuscate a single token (e.g. a class or field name)
     inline std::string Deobf(const char* name) {
         if (!name || !*name) return name ? name : "";
-        auto& map = GetMap();
-        auto it = map.find(name);
-        return it != map.end() ? it->second : std::string(name);
+        if (const std::string* r = FindDeobf(name)) return *r;
+        return std::string(name);
     }
 
     inline std::string Deobf(const std::string& name) {
-        auto& map = GetMap();
-        auto it = map.find(name);
-        return it != map.end() ? it->second : name;
+        if (const std::string* r = FindDeobf(name.c_str())) return *r;
+        return name;
     }
 
     // Deobfuscate all obfuscated tokens inside a longer string
     // (e.g. dotNetSignature "Void FKALGHJIADI(List`1[NPIEODCLNCF])")
     inline std::string DeobfAll(const std::string& text) {
-        auto& map = GetMap();
+        const auto& tbl = GetMap();
         std::string result;
         result.reserve(text.size());
         size_t i = 0;
@@ -3566,12 +3580,16 @@ namespace Beebyte {
                 size_t len = j - i;
                 if (len >= 6 && len <= 15) {
                     std::string token = text.substr(i, len);
-                    auto it = map.find(token);
-                    if (it != map.end()) {
-                        result += it->second;
-                        i = j;
-                        continue;
+                    bool found = false;
+                    for (const auto& kv : tbl) {
+                        if (token == kv.first) {
+                            result += kv.second;
+                            i = j;
+                            found = true;
+                            break;
+                        }
                     }
+                    if (found) continue;
                 }
             }
             result += text[i++];

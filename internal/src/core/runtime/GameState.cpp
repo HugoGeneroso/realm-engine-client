@@ -3,6 +3,7 @@
 #include "RuntimeOffsets.h"
 #include "Il2CppResolver.h"
 #include "DbgFileLog.h"
+#include "WorldGate.h"
 
 #include <Windows.h>
 
@@ -16,6 +17,7 @@ static Il2CppClass* s_appMgrClass      = nullptr;
 static void*        s_appMgr           = nullptr;  // cached after first successful find
 static void*        s_worldMgr         = nullptr;  // re-read every Tick
 static void*        s_localPtr         = nullptr;  // re-read every Tick
+static bool         s_everValid       = false;    // seen a valid local ptr (suppress first-login fire)
 static ULONGLONG    s_lastAppMgrTry    = 0;        // rate-limits the expensive FindObjectsByType
 static ULONGLONG    s_appMgrDeferUntil = 0;        // skip FindObjectsOfType during login/menu
 static bool         s_wmOffsetResolved = false;    // true once AppMgr_WorldMgr is dynamically set
@@ -132,9 +134,20 @@ void Tick()
     // lags one+ frames behind the entity dict).
     void* lp = ReadPtr(wm, RuntimeOffsets::WM_Local);
     if (PtrOk(lp)) {
+        // A change in the local player pointer means a new player object was
+        // created (realm change, or teleport/arena->Nexus where the
+        // old pointer goes null then a fresh one appears). Notify WorldGate so
+        // it can quiesce hooks/writers through the reload window.
+        // s_everValid avoids firing on the very first login (null->valid);
+        // once we've seen a valid pointer, ANY later change (incl. through
+        // a null window) counts as a transition.
+        if (s_everValid && lp != s_localPtr)
+            WorldGate::OnLocalPtrChanged();
         s_localPtr = lp;
+        s_everValid = true;
     } else if (s_localPtr && !PtrOk(s_localPtr)) {
         s_localPtr = nullptr;
+        // keep s_everValid = true so a later null->valid still fires
     }
 }
 

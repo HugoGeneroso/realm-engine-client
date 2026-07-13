@@ -214,7 +214,7 @@ SensorSnapshot Build(float playerX, float playerY, const Settings& settings)
     EnemyTracker::Tick();
     int32_t lockId = 0, lockMaxHp = -1;
     float   lockX = 0.f, lockY = 0.f;
-    const std::vector<EnemyTracker::Entry>& enemies = EnemyTracker::GetSnapshot();
+    const std::vector<EnemyTracker::Entry> enemies = EnemyTracker::SnapshotCopy();
     for (const EnemyTracker::Entry& e : enemies) {
         if (!IsFinitePoint(e.x, e.y)) continue;
         if (DistSq(e.x, e.y, playerX, playerY) <= cullSq) {

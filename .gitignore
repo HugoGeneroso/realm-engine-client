@@ -10,3 +10,14 @@ internal/src/game/generated/
 client/data/objects.xml
 client/data/tiles.xml
 internal/data/objects.xml
+
+# ── Extracted Il2CppInspectorRedux tool binaries (regenerate via Expand-Archive from the .zip) ──
+Il2CppInspectorRedux/CLI/Il2CppInspectorRedux.CLI-win-x64/
+Il2CppInspectorRedux/GUI/
+Il2CppInspectorRedux/Legacy-CLI/
+
+# ── Electron build output (regenerate with npm run dist) ──
+client/release/
+
+# ── Debug packet captures ──
+packets_*.json

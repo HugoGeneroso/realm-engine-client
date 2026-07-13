@@ -13,6 +13,7 @@
 #include "IpcBridge.h"
 #include "DbgFileLog.h"
 #include "CrashTrace.h"
+#include "RuntimeOffsets.h"
 
 HMODULE hModule;
 HANDLE hUnloadEvent;
@@ -83,18 +84,25 @@ void Run(LPVOID lpParam)
  if (IsDebuggerDetected() || HasAnalysisModulesLoaded()) return;
 #endif
 
- DBG_FILE_LOG("[Run] About to call init_il2cpp(hGameAssembly=" << (void*)hGameAssembly << ")...");
- init_il2cpp(hGameAssembly);
- DBG_FILE_LOG("[Run] init_il2cpp() returned.");
+  // Warm up the (large) Beebyte name map at a clean point during init so its
+  // static unordered_map allocation/rehash never runs lazily on the dPresent
+  // render thread. Done BEFORE init_il2cpp so the map construction (pure C++,
+  // no IL2CPP dependency) is isolated from any IL2CPP heap interaction.
+  RuntimeOffsets::Warmup();
+  DBG_FILE_LOG("[Run] RuntimeOffsets::Warmup() done.");
 
- DBG_FILE_LOG("[Run] About to call AttachIl2Cpp()...");
- if (!AttachIl2Cpp()) {
-  DBG_FILE_LOG("[Run] AttachIl2Cpp() FAILED — returning.");
-  return;
- }
- DBG_FILE_LOG("[Run] AttachIl2Cpp() succeeded.");
+  DBG_FILE_LOG("[Run] About to call init_il2cpp(hGameAssembly=" << (void*)hGameAssembly << ")...");
+  init_il2cpp(hGameAssembly);
+  DBG_FILE_LOG("[Run] init_il2cpp() returned.");
 
- DBG_FILE_LOG("[Run] About to call DetourInitilization()...");
+  DBG_FILE_LOG("[Run] About to call AttachIl2Cpp()...");
+  if (!AttachIl2Cpp()) {
+   DBG_FILE_LOG("[Run] AttachIl2Cpp() FAILED — returning.");
+   return;
+  }
+   DBG_FILE_LOG("[Run] AttachIl2Cpp() succeeded.");
+
+   DBG_FILE_LOG("[Run] About to call DetourInitilization()...");
  DetourInitilization();
  DBG_FILE_LOG("[Run] DetourInitilization() returned.");
 

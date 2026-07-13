@@ -35,6 +35,7 @@
 #include "DbgFileLog.h"
 #include "CrashTrace.h"
 #include "AimHooks.h"
+#include "WorldGate.h"
 
 namespace {
 
@@ -265,6 +266,15 @@ HRESULT __stdcall dPresent(IDXGISwapChain* __this, UINT SyncInterval, UINT Flags
 	PresentTraceEnter(frame, "GameState::Tick");
 	GameState::Tick();       // resolves AppMgr/WorldMgr/LocalPtr — must be first
 	PresentTraceLeave(frame, "GameState::Tick");
+
+	// World-transition quiesce: if the local player pointer changed this
+	// frame (new realm/Nexus), tear down all hooks/writers once, then
+	// keep them disabled until the new world has settled. This is the
+	// definitive guard against the "return to Nexus" Unity crash
+	// (write through a stale object pointer during the reload window).
+	if (WorldGate::ConsumeWorldChange())
+		WorldGate::OnWorldChange();
+	const bool settling = WorldGate::IsSettling();
 	PresentTraceEnter(frame, "HwidCapture::Tick");
 	HwidCapture::Tick();     // one-shot per session — calls Deca's DeviceIdHolder.GetDeviceId once IL2CPP is up, writes hwid.txt
 	PresentTraceLeave(frame, "HwidCapture::Tick");
@@ -272,16 +282,16 @@ HRESULT __stdcall dPresent(IDXGISwapChain* __this, UINT SyncInterval, UINT Flags
 	LocalPlayer::Tick();     // reads stats from GameState::GetLocalPtr()
 	PresentTraceLeave(frame, "LocalPlayer::Tick");
 	PresentTraceEnter(frame, "NoclipHook::Tick");
-	NoclipHook::Tick();      // lazy-install walkability hooks when noclip is enabled
+	if (!settling) NoclipHook::Tick();   // lazy-install walkability hooks when noclip is enabled
 	PresentTraceLeave(frame, "NoclipHook::Tick");
 	PresentTraceEnter(frame, "SharedMemory::Tick");
 	SharedMemory::Tick();    // shared mapping telemetry (pos + legacy bridges still using shared memory)
 	PresentTraceLeave(frame, "SharedMemory::Tick");
 	PresentTraceEnter(frame, "FeatureRuntime::ApplyOverrides");
-	FeatureRuntime::ApplyOverrides(); // unified pipe-driven feature sync
+	if (!settling) FeatureRuntime::ApplyOverrides(); // unified pipe-driven feature sync
 	PresentTraceLeave(frame, "FeatureRuntime::ApplyOverrides");
 	PresentTraceEnter(frame, "SkinChanger::Tick");
-	SkinChanger::Tick();     // writes skin when ptr changes — uses GameState
+	if (!settling) SkinChanger::Tick();     // writes skin when ptr changes — uses GameState
 	PresentTraceLeave(frame, "SkinChanger::Tick");
 	// #region agent log
 	SpeedHack::LogTimingProbe("pre_apply_timescale");
@@ -292,10 +302,10 @@ HRESULT __stdcall dPresent(IDXGISwapChain* __this, UINT SyncInterval, UINT Flags
 	PresentTraceLeave(frame, "BootGate::Tick");
 	stepT0 = std::chrono::steady_clock::now();
 	PresentTraceEnter(frame, "AutoAim::Tick");
-	AutoAim::Tick();         // entity dict walk — uses GameState::GetWorldMgr()
+	if (!settling) AutoAim::Tick();       // entity dict walk — uses GameState::GetWorldMgr()
 	PresentTraceLeave(frame, "AutoAim::Tick");
 	PresentTraceEnter(frame, "BagLooter::Tick");
-	BagLooter::Tick();       // throttled bag scan + ext-goal routing
+	if (!settling) BagLooter::Tick();     // throttled bag scan + ext-goal routing
 	PresentTraceLeave(frame, "BagLooter::Tick");
 	PresentTraceEnter(frame, "DiagBridge::Tick");
 	DiagBridge::Tick();      // mirror live state to %LOCALAPPDATA%\RealmEngine\diag.json

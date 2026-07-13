@@ -38,8 +38,13 @@ function findInternalDir() {
 }
 const INTERNAL_DIR = findInternalDir();
 const DLL_SLN = join(INTERNAL_DIR, 'il2cpp-dll-injection.sln');
-const DLL_OUTPUT = join(INTERNAL_DIR, 'x64', 'Release', 'version.dll');
 const DLL_DEST = join(ROOT, 'assets', 'version.dll');
+// The current vcxproj OutDir writes directly to client/assets/. Older project
+// configs emitted to internal/x64/Release/. Resolve after the build runs.
+const DLL_OUTPUT_CANDIDATES = [
+  DLL_DEST,
+  join(INTERNAL_DIR, 'x64', 'Release', 'version.dll'),
+];
 const BUILD_SECRETS_H = join(INTERNAL_DIR, 'src', 'ui', 'BuildSecrets.h');
 const PACKET_DEFINITIONS_JSON = readFileSync(join(DATA_DIR, 'packet-definitions.json'), 'utf8');
 const STAT_TYPES_JSON = readFileSync(join(DATA_DIR, 'stat-types.json'), 'utf8');
@@ -169,8 +174,9 @@ try {
   process.exit(1);
 }
 
-if (!existsSync(DLL_OUTPUT)) {
-  console.error(`[build-prod] ERROR: DLL not found after build: ${DLL_OUTPUT}`);
+const DLL_OUTPUT = DLL_OUTPUT_CANDIDATES.find((p) => existsSync(p));
+if (!DLL_OUTPUT) {
+  console.error(`[build-prod] ERROR: DLL not found after build. Looked in:\n  ${DLL_OUTPUT_CANDIDATES.join('\n  ')}`);
   process.exit(1);
 }
 
@@ -182,8 +188,12 @@ log(`DLL built: ${fileSize(DLL_OUTPUT)}`);
 // runtime deploy path (index.ts) already prefers assets/version.dll, so no
 // decryption step or embedded key is needed.
 mkdirSync(join(ROOT, 'assets'), { recursive: true });
-copyFileSync(DLL_OUTPUT, DLL_DEST);
-log(`DLL copied → assets/version.dll (${fileSize(DLL_DEST)})`);
+if (resolve(DLL_OUTPUT) !== resolve(DLL_DEST)) {
+  copyFileSync(DLL_OUTPUT, DLL_DEST);
+  log(`DLL copied → assets/version.dll (${fileSize(DLL_DEST)})`);
+} else {
+  log(`DLL already at assets/version.dll (${fileSize(DLL_DEST)})`);
+}
 
 // ── Step 5: Bundle core ──────────────────────────────────────────────────────
 

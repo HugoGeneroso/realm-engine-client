@@ -39,10 +39,14 @@ static void WriteSkinField(void* obj, int32_t value)
     FieldInfo* fi = RuntimeOffsets::FI_HP;
     if (!fi) return;
 
-    Resolver::Protection::safe_call([&]() {
-        il2cpp_field_set_value(
-            reinterpret_cast<Il2CppObject*>(obj), fi, &value);
-    });
+    __try {
+        Resolver::Protection::safe_call([&]() {
+            il2cpp_field_set_value(
+                reinterpret_cast<Il2CppObject*>(obj), fi, &value);
+        });
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        RuntimeOffsets::FI_HP = nullptr;
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

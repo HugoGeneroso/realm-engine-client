@@ -72,14 +72,21 @@ static void ReadFromPtr()
     // fall back to raw offsets when FieldInfo isn't resolved yet.
     bool statsFromField = false;
     if (RuntimeOffsets::FI_HP && RuntimeOffsets::FI_MaxHP) {
-        int32_t hp = 0, maxHp = 0, def = 0;
-        if (RuntimeOffsets::ReadField(obj, RuntimeOffsets::FI_HP, hp))
-            s_hp = hp;
-        if (RuntimeOffsets::ReadField(obj, RuntimeOffsets::FI_MaxHP, maxHp))
-            s_maxHp = maxHp;
-        if (RuntimeOffsets::FI_Defense && RuntimeOffsets::ReadField(obj, RuntimeOffsets::FI_Defense, def))
-            s_defense = def;
-        statsFromField = (s_maxHp > 0);
+        __try {
+            int32_t hp = 0, maxHp = 0, def = 0;
+            if (RuntimeOffsets::ReadField(obj, RuntimeOffsets::FI_HP, hp))
+                s_hp = hp;
+            if (RuntimeOffsets::ReadField(obj, RuntimeOffsets::FI_MaxHP, maxHp))
+                s_maxHp = maxHp;
+            if (RuntimeOffsets::FI_Defense && RuntimeOffsets::ReadField(obj, RuntimeOffsets::FI_Defense, def))
+                s_defense = def;
+            statsFromField = (s_maxHp > 0);
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            statsFromField = false;
+            RuntimeOffsets::FI_HP = nullptr;
+            RuntimeOffsets::FI_MaxHP = nullptr;
+            RuntimeOffsets::FI_Defense = nullptr;
+        }
     }
     if (!statsFromField) {
         static void* s_lastRecoverPtr = nullptr;
@@ -240,9 +247,18 @@ void Tick()
     if (s_ptr) {
         ReadFromPtr();
         if (FeatureState::GetGodModeEnabled()) {
-            __try {
-                *reinterpret_cast<bool*>(reinterpret_cast<uint8_t*>(s_ptr) + RuntimeOffsets::LocalInvincible) = true;
-            } __except (EXCEPTION_EXECUTE_HANDLER) {}
+            // Only write when the field offset is resolved via il2cpp reflection
+            // (FI_LocalInvincible). The hardcoded fallback (LocalInvincible = 0x4A9)
+            // is version-specific; after a game update it points at the wrong field
+            // and the write corrupts the player object, which later crashes Unity
+            // (UnityCrashHandler64.exe) — not the DLL, so the __try below can't catch
+            // it. Skip the write until the offset is verified so we never corrupt
+            // game memory (a silent corruption is worse than god mode being inert).
+            if (RuntimeOffsets::FI_LocalInvincible != nullptr) {
+                __try {
+                    *reinterpret_cast<bool*>(reinterpret_cast<uint8_t*>(s_ptr) + RuntimeOffsets::LocalInvincible) = true;
+                } __except (EXCEPTION_EXECUTE_HANDLER) {}
+            }
         }
     } else {
         // No IL2CPP ptr yet (WM_Local lag) — still expose wire stats to gates/ImGui.

@@ -9,6 +9,7 @@
 #include <iomanip>
 #include <thread>
 #include <atomic>
+#include "GameState.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // All variables are pre-initialised to their hardcoded fallback values.
@@ -206,6 +207,8 @@ FieldInfo* FI_AbilityReady     = nullptr;  // PPBLNMIMIFP — bool abilityReady
 FieldInfo* FI_LocalInvincible  = nullptr;  // BINDBHJLPMG — bool invincible (short-duration hit immunity)
 FieldInfo* FI_ObjType          = nullptr;
 
+static uint32_t s_mapChangesDetected = 0;
+
 // ── Internal helpers ──────────────────────────────────────────────────────
 
 static FieldInfo* FindFieldOnHierarchy(Il2CppClass* klass, const char* name)
@@ -215,6 +218,38 @@ static FieldInfo* FindFieldOnHierarchy(Il2CppClass* klass, const char* name)
         if (f) return f;
     }
     return nullptr;
+}
+
+static bool IsFieldInfoValid(FieldInfo* fi)
+{
+    if (!fi) return false;
+    const uintptr_t a = reinterpret_cast<uintptr_t>(fi);
+    if (a < 0x10000 || a > 0x7FFFFFFFFFFFULL) return false;
+    if (!fi->type) return false;
+    return true;
+}
+
+static bool DetectMapChange()
+{
+    // The local player object is re-created on every realm/Nexus transition,
+    // so its pointer changes.  Hooks/FieldInfo captured against the old
+    // object must be re-validated.  Plain pointer compare — no SEH needed.
+    static void* s_lastLocalPtr = nullptr;
+    void* local = GameState::GetLocalPtr();
+    if (!local) {
+        s_lastLocalPtr = nullptr;
+        return false;
+    }
+    if (s_lastLocalPtr == nullptr) {
+        s_lastLocalPtr = local;
+        return false;
+    }
+    if (local != s_lastLocalPtr) {
+        s_lastLocalPtr = local;
+        s_mapChangesDetected++;
+        return true;
+    }
+    return false;
 }
 
 // ── Resolution table ─────────────────────────────────────────────────────
@@ -476,8 +511,8 @@ static constexpr int kFIEntryCount =
 //     mark its entries done (accepting fallbacks) so we stop scanning metadata
 //     every frame for a name that BeeByte has likely renamed.
 
-static bool      s_allDone             = false;
-static bool      s_giveUpFired         = false;
+static bool s_allDone             = false;
+static bool s_giveUpFired         = false;
 static char      s_unresolvedClassNames[512] = {};
 static ULONGLONG s_firstCallTick       = 0;
 static int       s_entryIdx            = 0;
@@ -488,6 +523,7 @@ static constexpr int     kBudgetPerCall = 8;
 static constexpr ULONGLONG kMaxEnsureMs = 4ULL;
 static bool s_inEnsureAll             = false;
 static bool s_allowLazyClassLookup    = false;
+static bool s_mapChangeDetected       = false;
 
 static bool IsLazyInstanceClass(const char* cls)
 {
@@ -581,6 +617,25 @@ int AutoResolveByStructure()
     return healed;
 }
 
+// SEH-safe variant of AutoResolveByStructure. The scan walks the live IL2CPP type
+// system (il2cpp_class_for_each); a stale game update can make that walk AV. A raw
+// exception here used to take down the whole process — the VEH then reports the
+// last render-thread step (i.e. "BootGate::Tick"). Catch it, log it, and re-arm
+// the retry (KickAsyncStructuralScan re-runs it later) instead of crashing.
+static int SafeAutoResolveByStructure()
+{
+    int healed = 0;
+    __try {
+        healed = AutoResolveByStructure();
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        // DbgFileLogWrite (not DBG_FILE_LOG): DBG_FILE_LOG builds an ostringstream,
+        // and a local with a destructor triggers C2712 inside __try/__except.
+        DbgFileLogWrite("[RuntimeOffsets] AsyncStructuralScan: caught exception during auto-resolve (offset drift?) — re-arming retry instead of crashing");
+        s_structScanDone = false;
+    }
+    return healed;
+}
+
 void KickAsyncStructuralScan()
 {
     if (s_recoveredProjClass != nullptr) return;
@@ -609,7 +664,7 @@ void KickAsyncStructuralScan()
     s_lastKickMs.store(now, std::memory_order_relaxed);
     std::thread([]() {
         DBG_FILE_LOG("[RuntimeOffsets] AsyncStructuralScan: worker begin (in-world deferred)");
-        const int healed = AutoResolveByStructure();
+        const int healed = SafeAutoResolveByStructure();
         DBG_FILE_LOG("[RuntimeOffsets] AsyncStructuralScan: worker done healed=" << healed);
         if (healed > 0)
             BootGate::RefreshAuditIfReady();
@@ -671,6 +726,14 @@ void MarkSuspect(const uint32_t* offsetVar)
 {
     for (int i = 0; i < kEntryCount; ++i)
         if (s_entries[i].outPtr == offsetVar) { s_entryState[i] = OffsetState::Suspect; return; }
+}
+
+// Force the Beebyte name table to be built now, at a clean point during init
+// (before dPresent touches the heap), rather than lazily the first time a
+// HBEAKBIHANL recovery walk iterates GetMap() on the render thread.
+void Warmup()
+{
+    (void)Beebyte::GetMap().size();
 }
 
 // ── A4: recover renamed classes from a LIVE OBJECT the cheat already holds ────
@@ -736,15 +799,18 @@ static int HealEntryFieldsFromClass(Il2CppClass* cls, bool onlyBroken)
 
 // Retry ONLY FallbackGaveUp rows once their class lazy-loads — never resets s_allDone
 // or re-walks the full 119-entry table (that burst on the login screen crashed Unity).
-static void MaybeRetryLazyGaveUpEntries()
+// Returns true if a retry was actually attempted (passed the internal gates), so the
+// caller can latch the one-shot gate without marking it done when BootGate/LazyOffset
+// wasn't ready yet.
+static bool MaybeRetryLazyGaveUpEntries()
 {
     // s_allDone fires during login while BootGate is still Auditing; the first
     // retry here called FindClassLoose for HBEAKBIHANL and hung Unity (~3.6s).
-    if (!BootGate::LazyOffsetLookupAllowed()) return;
+    if (!BootGate::LazyOffsetLookupAllowed()) return false;
 
     static ULONGLONG s_lastRetryMs = 0;
     const ULONGLONG now = GetTickCount64();
-    if (now - s_lastRetryMs < 1000ULL) return;
+    if (now - s_lastRetryMs < 1000ULL) return false;
 
     bool anyRetry = false;
     for (int i = 0; i < kEntryCount; ++i) {
@@ -754,7 +820,7 @@ static void MaybeRetryLazyGaveUpEntries()
             break;
         }
     }
-    if (!anyRetry) return;
+    if (!anyRetry) return false;
     s_lastRetryMs = now;
     s_allowLazyClassLookup = true;
     const ULONGLONG deadline = now + kMaxEnsureMs;
@@ -805,6 +871,7 @@ static void MaybeRetryLazyGaveUpEntries()
         BootGate::RefreshAuditIfReady();
     }
     s_allowLazyClassLookup = false;
+    return true;
 }
 
 int HealEntriesFromClassMetadata(Il2CppClass* klass)
@@ -879,7 +946,45 @@ void EnsureAll()
     struct EnsureGuard { ~EnsureGuard() { s_inEnsureAll = false; } } guard;
 
     if (s_allDone) {
-        MaybeRetryLazyGaveUpEntries();
+        if (DetectMapChange()) {
+            DbgFileLogWrite("[RuntimeOffsets] Map change detected in EnsureAll, re-validating FieldInfo pointers");
+            if (FI_HP && !IsFieldInfoValid(FI_HP)) {
+                DbgFileLogWrite("[RuntimeOffsets] FI_HP invalid after map change, clearing");
+                FI_HP = nullptr;
+            }
+            if (FI_MaxHP && !IsFieldInfoValid(FI_MaxHP)) {
+                DbgFileLogWrite("[RuntimeOffsets] FI_MaxHP invalid after map change, clearing");
+                FI_MaxHP = nullptr;
+            }
+            if (FI_Defense && !IsFieldInfoValid(FI_Defense)) {
+                DbgFileLogWrite("[RuntimeOffsets] FI_Defense invalid after map change, clearing");
+                FI_Defense = nullptr;
+            }
+            if (FI_LocalInvincible && !IsFieldInfoValid(FI_LocalInvincible)) {
+                DbgFileLogWrite("[RuntimeOffsets] FI_LocalInvincible invalid after map change, clearing");
+                FI_LocalInvincible = nullptr;
+            }
+            if (FI_ObjType && !IsFieldInfoValid(FI_ObjType)) {
+                DbgFileLogWrite("[RuntimeOffsets] FI_ObjType invalid after map change, clearing");
+                FI_ObjType = nullptr;
+            }
+        }
+        // Lazy retry is a ONE-SHOT recovery of FallbackGaveUp / pending lazy-instance
+        // rows once their class becomes available — it must NOT run every frame.
+        // Re-armed exactly once after s_recoveredProjClass is set by the async
+        // structural scan, so projectile/AoE offsets can still heal from the
+        // recovered class. MaybeRetryLazyGaveUpEntries() returns false (no-op) while
+        // BootGate/LazyOffset isn't ready, so we don't latch "done" until it actually
+        // attempted a retry (which only happens once a live character is in-world).
+        static bool s_lazyRetryDone       = false;
+        static bool s_retryAfterRecover   = false;
+        const bool projRecoveredNow       = (s_recoveredProjClass != nullptr);
+        if (!s_lazyRetryDone || (projRecoveredNow && !s_retryAfterRecover)) {
+            if (MaybeRetryLazyGaveUpEntries())
+                s_lazyRetryDone = true;
+            if (projRecoveredNow)
+                s_retryAfterRecover = true;
+        }
         Gjj_OriginY = Gjj_OriginX + 4;
         Gjj_DestY   = Gjj_DestX   + 4;
         Fhoh_DestY  = Fhoh_DestX  + 4;
